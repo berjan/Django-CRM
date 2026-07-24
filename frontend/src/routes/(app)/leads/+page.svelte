@@ -59,6 +59,7 @@
   import { orgSettings } from '$lib/stores/org.js';
   import { ViewToggle } from '$lib/components/ui/view-toggle';
   import { LeadKanban } from '$lib/components/ui/lead-kanban';
+  import LeadEmailPanel from '$lib/components/leads/LeadEmailPanel.svelte';
 
   // Column visibility configuration
   const STORAGE_KEY = 'leads-column-config';
@@ -1862,6 +1863,7 @@
 
   {#snippet activitySection()}
     {#if drawerMode !== 'create' && drawerData}
+      <LeadEmailPanel lead={drawerData} mailboxes={data.communicationMailboxes || []} />
       <CommentSection
         entityId={drawerData.id}
         entityType="leads"

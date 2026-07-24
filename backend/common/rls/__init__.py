@@ -55,6 +55,10 @@ ORG_SCOPED_TABLES = [
     "escalation_policy",
     "inbound_mailbox",
     "email_message",
+    "communication_mailbox",
+    "communication_email_thread",
+    "communication_email_message",
+    "communication_email_suppression",
     "routing_rule",
     "routing_rule_state",
     # Boards (Kanban)

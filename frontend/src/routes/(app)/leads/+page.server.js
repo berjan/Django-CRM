@@ -77,24 +77,34 @@ export async function load({ url, cookies, locals }) {
     const kanbanQueryString = kanbanQueryParams.toString();
 
     // Fetch data based on view mode + form options for drawer
-    const [response, tagsResponse, kanbanResponse, usersResponse, teamsResponse, contactsResponse] =
-      await Promise.all([
-        apiRequest(`/leads/${queryString ? `?${queryString}` : ''}`, {}, { cookies, org }),
-        apiRequest('/tags/', {}, { cookies, org }).catch(() => ({ tags: [] })),
-        viewMode === 'kanban'
-          ? apiRequest(
-              `/leads/kanban/${kanbanQueryString ? `?${kanbanQueryString}` : ''}`,
-              {},
-              { cookies, org }
-            ).catch(() => null)
-          : Promise.resolve(null),
-        // Form options for drawer (preload server-side to avoid client-side auth issues)
-        apiRequest('/users/', {}, { cookies, org }).catch(() => ({
-          active_users: { active_users: [] }
-        })),
-        apiRequest('/teams/', {}, { cookies, org }).catch(() => ({ teams: [] })),
-        apiRequest('/contacts/', {}, { cookies, org }).catch(() => ({ contact_obj_list: [] }))
-      ]);
+    const [
+      response,
+      tagsResponse,
+      kanbanResponse,
+      usersResponse,
+      teamsResponse,
+      contactsResponse,
+      mailboxesResponse
+    ] = await Promise.all([
+      apiRequest(`/leads/${queryString ? `?${queryString}` : ''}`, {}, { cookies, org }),
+      apiRequest('/tags/', {}, { cookies, org }).catch(() => ({ tags: [] })),
+      viewMode === 'kanban'
+        ? apiRequest(
+            `/leads/kanban/${kanbanQueryString ? `?${kanbanQueryString}` : ''}`,
+            {},
+            { cookies, org }
+          ).catch(() => null)
+        : Promise.resolve(null),
+      // Form options for drawer (preload server-side to avoid client-side auth issues)
+      apiRequest('/users/', {}, { cookies, org }).catch(() => ({
+        active_users: { active_users: [] }
+      })),
+      apiRequest('/teams/', {}, { cookies, org }).catch(() => ({ teams: [] })),
+      apiRequest('/contacts/', {}, { cookies, org }).catch(() => ({ contact_obj_list: [] })),
+      apiRequest('/communications/mailboxes/', {}, { cookies, org }).catch(() => ({
+        mailboxes: []
+      }))
+    ]);
 
     // Handle Django response format
     // Django returns: { open_leads: { leads_count, open_leads: [...] }, close_leads: {...}, ... }
@@ -211,6 +221,7 @@ export async function load({ url, cookies, locals }) {
       filters,
       viewMode,
       kanbanData: kanbanResponse,
+      communicationMailboxes: mailboxesResponse.mailboxes || [],
       filterOptions: {
         statuses: [
           { value: 'ASSIGNED', label: 'Assigned' },

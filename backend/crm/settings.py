@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     "orders",
     "business_hours",
     "macros",
+    "communications",
     # "teams",  # Merged into common app
 ]
 
@@ -149,6 +150,10 @@ elif ENV_TYPE == "prod":
 
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "noreply@localhost")
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@localhost")
+GMAIL_OAUTH_CLIENT_ID = os.environ.get("GMAIL_OAUTH_CLIENT_ID", "")
+GMAIL_OAUTH_CLIENT_SECRET = os.environ.get("GMAIL_OAUTH_CLIENT_SECRET", "")
+GMAIL_OAUTH_REDIRECT_URI = os.environ.get("GMAIL_OAUTH_REDIRECT_URI", "")
+GMAIL_TOKEN_ENCRYPTION_KEY = os.environ.get("GMAIL_TOKEN_ENCRYPTION_KEY", "")
 
 # AWS SES settings (loaded when EMAIL_BACKEND is django_ses.SESBackend)
 if "django_ses" in EMAIL_BACKEND:

@@ -69,4 +69,9 @@ app.conf.beat_schedule = {
         "task": "cases.tasks.auto_stop_stale_timers",
         "schedule": crontab(minute="*/30"),
     },
+    # Pull new Gmail messages into lead communication threads.
+    "sync-gmail-lead-mailboxes": {
+        "task": "communications.tasks.schedule_gmail_sync",
+        "schedule": crontab(minute="*/2"),
+    },
 }
