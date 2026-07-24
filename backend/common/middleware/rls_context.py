@@ -109,6 +109,7 @@ class RequireOrgContext:
     EXEMPT_PATHS = [
         "/api/auth/refresh-token/",
         "/api/auth/me/",
+        "/api/auth/login/",
         "/api/auth/switch-org/",
         "/api/auth/google/",
         "/api/auth/magic-link/request/",

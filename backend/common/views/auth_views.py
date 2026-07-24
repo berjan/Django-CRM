@@ -6,6 +6,7 @@ from datetime import timedelta
 
 import requests
 from django.conf import settings
+from django.contrib.auth import authenticate
 from django.contrib.auth.hashers import make_password
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, inline_serializer
@@ -20,6 +21,95 @@ from common.models import Org, Profile, User
 from common.serializer import OrgAwareRefreshToken
 
 logger = logging.getLogger(__name__)
+
+
+class PasswordLoginView(APIView):
+    """
+    Authenticate with email and password and return JWT tokens.
+    """
+
+    permission_classes = []
+    authentication_classes = []
+
+    @extend_schema(
+        tags=["auth"],
+        request=inline_serializer(
+            name="PasswordLoginRequest",
+            fields={
+                "email": serializers.EmailField(),
+                "password": serializers.CharField(write_only=True),
+            },
+        ),
+        responses={
+            200: inline_serializer(
+                name="PasswordLoginResponse",
+                fields={
+                    "access_token": serializers.CharField(),
+                    "refresh_token": serializers.CharField(),
+                    "user": serializers.DictField(),
+                    "current_org": serializers.DictField(required=False),
+                },
+            )
+        },
+    )
+    def post(self, request):
+        from common.audit_log import audit_log
+
+        email = (request.data.get("email") or "").strip().lower()
+        password = request.data.get("password") or ""
+
+        if not email or not password:
+            audit_log.login_failure(email or "missing", "missing credentials", request)
+            return Response(
+                {"error": "Email and password are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = authenticate(request, username=email, password=password)
+        if user is None:
+            audit_log.login_failure(email, "invalid credentials", request)
+            return Response(
+                {"error": "Invalid email or password"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        if not user.is_active:
+            audit_log.login_failure(email, "inactive user", request)
+            return Response(
+                {"error": "User account is disabled"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        user.last_login = timezone.now()
+        user.save(update_fields=["last_login"])
+
+        profiles = Profile.objects.filter(user=user, is_active=True)
+        default_org = None
+        profile = None
+        if profiles.exists():
+            profile = profiles.first()
+            default_org = profile.org
+
+        if default_org:
+            token = OrgAwareRefreshToken.for_user_and_org(user, default_org, profile)
+        else:
+            token = OrgAwareRefreshToken.for_user_and_org(user, None)
+
+        audit_log.login_success(user, default_org, request)
+
+        user_serializer = serializer.UserDetailSerializer(user)
+        response_data = {
+            "access_token": str(token.access_token),
+            "refresh_token": str(token),
+            "user": user_serializer.data,
+        }
+        if default_org:
+            response_data["current_org"] = {
+                "id": str(default_org.id),
+                "name": default_org.name,
+            }
+
+        return Response(response_data, status=status.HTTP_200_OK)
 
 
 class GoogleOAuthCallbackView(APIView):

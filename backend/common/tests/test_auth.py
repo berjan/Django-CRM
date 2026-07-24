@@ -19,6 +19,47 @@ from common.serializer import OrgAwareRefreshToken
 
 
 @pytest.mark.django_db
+class TestPasswordLoginView:
+    """Tests for POST /api/auth/login/"""
+
+    url = "/api/auth/login/"
+
+    def test_login_valid_credentials(self, unauthenticated_client, admin_user, org_a, admin_profile):
+        response = unauthenticated_client.post(
+            self.url,
+            {"email": admin_user.email, "password": "testpass123"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert "access_token" in response.data
+        assert "refresh_token" in response.data
+        assert response.data["user"]["email"] == admin_user.email
+        assert response.data["current_org"]["id"] == str(org_a.id)
+
+    def test_login_invalid_credentials(self, unauthenticated_client, admin_user):
+        response = unauthenticated_client.post(
+            self.url,
+            {"email": admin_user.email, "password": "wrong"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_login_missing_credentials(self, unauthenticated_client):
+        response = unauthenticated_client.post(self.url, {}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_login_inactive_user(self, unauthenticated_client, admin_user):
+        admin_user.is_active = False
+        admin_user.save()
+        response = unauthenticated_client.post(
+            self.url,
+            {"email": admin_user.email, "password": "testpass123"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+@pytest.mark.django_db
 class TestMeView:
     """Tests for GET /api/auth/me/"""
 

@@ -11,13 +11,9 @@
  */
 
 import axios from 'axios';
-import { redirect } from '@sveltejs/kit';
+import { fail, redirect } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { env as publicEnv } from '$env/dynamic/public';
-import { generateCodeVerifier, generateCodeChallenge, generateState } from '$lib/utils/pkce.js';
-
-const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
-const GOOGLE_SCOPES = ['openid', 'email', 'profile'].join(' ');
 
 // Cookie configuration
 const COOKIE_OPTIONS = {
@@ -66,8 +62,7 @@ export async function load({ url, cookies }) {
     throw redirect(307, '/org');
   }
 
-  // Generate OAuth parameters and return login URL
-  return await generateOAuthUrl(cookies);
+  return { google_url: null };
 }
 
 /**
@@ -147,67 +142,33 @@ async function handleOAuthCallback(code, returnedState, cookies) {
   throw redirect(307, '/org');
 }
 
-/**
- * Generate Google OAuth URL with PKCE parameters
- * @param {import('@sveltejs/kit').Cookies} cookies - SvelteKit cookies
- * @returns {Promise<object>} Object containing the Google OAuth URL
- */
-async function generateOAuthUrl(cookies) {
-  // Generate PKCE parameters
-  const codeVerifier = generateCodeVerifier();
-  const codeChallenge = await generateCodeChallenge(codeVerifier);
-
-  // Generate cryptographically random state for CSRF protection
-  const state = generateState();
-
-  // Store PKCE verifier and state in secure httpOnly cookies
-  // These expire in 10 minutes - should be plenty for OAuth flow
-  const oauthCookieMaxAge = 60 * 10; // 10 minutes
-
-  cookies.set('oauth_code_verifier', codeVerifier, getCookieOptions(oauthCookieMaxAge));
-  cookies.set('oauth_state', state, getCookieOptions(oauthCookieMaxAge));
-
-  // Build Google OAuth URL with all required parameters
-  const redirect_uri = env.GOOGLE_LOGIN_DOMAIN + '/login';
-
-  const params = new URLSearchParams({
-    client_id: env.GOOGLE_CLIENT_ID,
-    redirect_uri,
-    response_type: 'code',
-    scope: GOOGLE_SCOPES,
-    state,
-    code_challenge: codeChallenge,
-    code_challenge_method: 'S256',
-    access_type: 'offline', // Request refresh token
-    prompt: 'consent' // Always show consent screen (required for refresh token)
-  });
-
-  const google_login_url = `${GOOGLE_AUTH_URL}?${params.toString()}`;
-
-  return { google_url: google_login_url };
-}
-
 /** @type {import('@sveltejs/kit').Actions} */
 export const actions = {
-  default: async ({ request }) => {
+  default: async ({ request, cookies }) => {
     const formData = await request.formData();
-    const email = formData.get('email');
+    const email = String(formData.get('email') || '').trim();
+    const password = String(formData.get('password') || '');
 
-    if (!email) {
-      return { success: false, error: 'Email is required' };
+    if (!email || !password) {
+      return fail(400, { error: 'Email and password are required', email });
     }
 
     try {
       const apiUrl = publicEnv.PUBLIC_DJANGO_API_URL;
-      await axios.post(
-        `${apiUrl}/api/auth/magic-link/request/`,
-        { email },
+      const response = await axios.post(
+        `${apiUrl}/api/auth/login/`,
+        { email, password },
         { headers: { 'Content-Type': 'application/json' }, timeout: 10000 }
       );
-      return { success: true };
+
+      const { access_token, refresh_token } = response.data;
+      cookies.set('jwt_access', access_token, getCookieOptions(60 * 60 * 24));
+      cookies.set('jwt_refresh', refresh_token, getCookieOptions(60 * 60 * 24 * 365));
     } catch (error) {
-      // Always show success to user (backend also returns 200 always)
-      return { success: true };
+      const message = error.response?.data?.error || 'Invalid email or password';
+      return fail(error.response?.status || 401, { error: message, email });
     }
+
+    throw redirect(303, '/org');
   }
 };

@@ -2,33 +2,23 @@
   import '../../../app.css';
   import { enhance } from '$app/forms';
 
-  import imgGoogle from '$lib/assets/images/google.svg';
   import imgLogo from '$lib/assets/images/logo.png';
   import { ArrowRight } from '@lucide/svelte';
 
-  let { data = {} } = $props();
-
   let isLoading = $state(false);
   let email = $state('');
-  let magicLinkSent = $state(false);
-  let isSendingLink = $state(false);
-  let magicLinkError = $state('');
+  let password = $state('');
+  let loginError = $state('');
 
-  function handleGoogleLogin() {
+  function handlePasswordLogin() {
     isLoading = true;
-  }
-
-  function handleMagicLink() {
-    isSendingLink = true;
-    magicLinkError = '';
+    loginError = '';
     return async ({ result }) => {
-      isSendingLink = false;
-      if (result?.type === 'success') {
-        magicLinkSent = true;
-      } else if (result?.type === 'failure') {
-        magicLinkError = result.data?.error || 'Something went wrong. Please try again.';
-      } else if (!result) {
-        magicLinkError = 'Something went wrong. Please try again.';
+      isLoading = false;
+      if (result?.type === 'failure') {
+        loginError = result.data?.error || 'Invalid email or password.';
+      } else if (result?.type === 'error' || !result) {
+        loginError = 'Something went wrong. Please try again.';
       }
     };
   }
@@ -55,63 +45,45 @@
     <div class="login-card">
       <h1 class="login-title">Sign in to your account</h1>
 
-      <!-- Google Sign In -->
-      <a
-        href={data['google_url']}
-        onclick={handleGoogleLogin}
-        class="google-btn"
-        class:loading={isLoading}
-      >
-        {#if isLoading}
-          <span class="spinner"></span>
-          <span>Redirecting...</span>
-        {:else}
-          <img src={imgGoogle} alt="" class="google-icon" />
-          <span>Continue with Google</span>
-        {/if}
-      </a>
-
-      <!-- Divider -->
-      <div class="divider">
-        <span>or</span>
-      </div>
-
-      <!-- Magic Link -->
-      {#if magicLinkSent}
-        <div class="magic-link-success">
-          <p>Check your email for a sign-in link.</p>
-          <p class="magic-link-hint">The link expires in 10 minutes.</p>
-        </div>
-      {:else}
-        <form method="POST" use:enhance={handleMagicLink} class="magic-link-form">
-          <input
-            type="email"
-            name="email"
-            placeholder="Enter your email address"
-            class="email-input"
-            required
-            bind:value={email}
-            disabled={isSendingLink}
-          />
-          <button type="submit" class="magic-link-btn" disabled={isSendingLink}>
-            {#if isSendingLink}
-              <span class="spinner"></span>
-              <span>Sending...</span>
-            {:else}
-              <span>Continue with email</span>
-              <ArrowRight size={16} />
-            {/if}
-          </button>
-        </form>
-        {#if magicLinkError}
-          <p class="magic-link-error">{magicLinkError}</p>
-        {/if}
+      <form method="POST" use:enhance={handlePasswordLogin} class="login-form">
+        <input
+          type="email"
+          name="email"
+          placeholder="Email address"
+          autocomplete="email"
+          class="login-input"
+          required
+          bind:value={email}
+          disabled={isLoading}
+        />
+        <input
+          type="password"
+          name="password"
+          placeholder="Password"
+          autocomplete="current-password"
+          class="login-input"
+          required
+          bind:value={password}
+          disabled={isLoading}
+        />
+        <button type="submit" class="login-btn" disabled={isLoading}>
+          {#if isLoading}
+            <span class="spinner"></span>
+            <span>Signing in...</span>
+          {:else}
+            <span>Sign in</span>
+            <ArrowRight size={16} />
+          {/if}
+        </button>
+      </form>
+      {#if loginError}
+        <p class="login-error">{loginError}</p>
       {/if}
     </div>
 
     <!-- Help Links -->
     <div class="help-section">
-      <p class="help-text">New here? Just enter your email above to get started.</p>
+      <p class="help-text">Use the email and password for your BottleCRM account.</p>
     </div>
 
     <!-- Footer -->
@@ -186,46 +158,6 @@
     letter-spacing: -0.01em;
   }
 
-  /* Google Button */
-  .google-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.75rem;
-    width: 100%;
-    height: 48px;
-    background: #ff7a59;
-    border: none;
-    border-radius: 6px;
-    color: #fff;
-    font-size: 1rem;
-    font-weight: 600;
-    text-decoration: none;
-    cursor: pointer;
-    transition: background-color 0.15s ease;
-  }
-
-  .google-btn:hover {
-    background: #ff5c35;
-  }
-
-  .google-btn:active {
-    background: #e8532d;
-  }
-
-  .google-btn.loading {
-    pointer-events: none;
-    opacity: 0.85;
-  }
-
-  .google-icon {
-    width: 20px;
-    height: 20px;
-    background: #fff;
-    border-radius: 3px;
-    padding: 2px;
-  }
-
   .spinner {
     width: 18px;
     height: 18px;
@@ -241,36 +173,13 @@
     }
   }
 
-  /* Divider */
-  .divider {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    margin: 1.5rem 0;
-  }
-
-  .divider::before,
-  .divider::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: #cbd6e2;
-  }
-
-  .divider span {
-    font-size: 0.8125rem;
-    color: #7c98b6;
-    text-transform: lowercase;
-  }
-
-  /* Magic Link Form */
-  .magic-link-form {
+  .login-form {
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
   }
 
-  .email-input {
+  .login-input {
     width: 100%;
     height: 48px;
     padding: 0 1rem;
@@ -284,15 +193,15 @@
     box-sizing: border-box;
   }
 
-  .email-input:focus {
+  .login-input:focus {
     border-color: #ff7a59;
   }
 
-  .email-input:disabled {
+  .login-input:disabled {
     opacity: 0.6;
   }
 
-  .magic-link-btn {
+  .login-btn {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -309,39 +218,20 @@
     transition: background-color 0.15s ease;
   }
 
-  .magic-link-btn:hover {
+  .login-btn:hover {
     background: #2d3e50;
   }
 
-  .magic-link-btn:disabled {
+  .login-btn:disabled {
     opacity: 0.85;
     pointer-events: none;
   }
 
-  .magic-link-success {
-    text-align: center;
-    padding: 1rem 0;
-  }
-
-  .magic-link-error {
+  .login-error {
     margin-top: 0.75rem;
     font-size: 0.875rem;
     color: #c0392b;
     text-align: center;
-  }
-
-  .magic-link-success p {
-    color: #33475b;
-    font-size: 1rem;
-    font-weight: 500;
-    margin: 0;
-  }
-
-  .magic-link-hint {
-    color: #7c98b6 !important;
-    font-size: 0.875rem !important;
-    font-weight: 400 !important;
-    margin-top: 0.5rem !important;
   }
 
   /* Help Section */
@@ -421,36 +311,23 @@
     color: #fff;
   }
 
-  :global(.dark) .divider::before,
-  :global(.dark) .divider::after {
-    background: #404040;
-  }
-
-  :global(.dark) .divider span {
-    color: #888;
-  }
-
-  :global(.dark) .email-input {
+  :global(.dark) .login-input {
     background: #1a1a1a;
     border-color: #404040;
     color: #fff;
   }
 
-  :global(.dark) .email-input:focus {
+  :global(.dark) .login-input:focus {
     border-color: #ff7a59;
   }
 
-  :global(.dark) .magic-link-btn {
+  :global(.dark) .login-btn {
     background: #fff;
     color: #1a1a1a;
   }
 
-  :global(.dark) .magic-link-btn:hover {
+  :global(.dark) .login-btn:hover {
     background: #e0e0e0;
-  }
-
-  :global(.dark) .magic-link-success p {
-    color: #fff;
   }
 
   :global(.dark) .help-text {
