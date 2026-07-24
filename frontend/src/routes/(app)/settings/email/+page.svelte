@@ -1,7 +1,17 @@
 <script>
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
-  import { Mail, RefreshCw, Unplug, AlertTriangle, CheckCircle2 } from '@lucide/svelte';
+  import {
+    Mail,
+    RefreshCw,
+    Unplug,
+    AlertTriangle,
+    CheckCircle2,
+    Plus,
+    Copy,
+    Save,
+    Archive
+  } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
   import { PageHeader } from '$lib/components/layout';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -19,6 +29,22 @@
     }
     if (form?.disconnected) {
       toast.success('Mailbox is losgekoppeld');
+      invalidateAll();
+    }
+    if (form?.templateCreated) {
+      toast.success('E-mailtemplate gemaakt');
+      invalidateAll();
+    }
+    if (form?.templateUpdated) {
+      toast.success('E-mailtemplate opgeslagen');
+      invalidateAll();
+    }
+    if (form?.templateDuplicated) {
+      toast.success('E-mailtemplate gedupliceerd');
+      invalidateAll();
+    }
+    if (form?.templateDeactivated) {
+      toast.success('E-mailtemplate gedeactiveerd');
       invalidateAll();
     }
   });
@@ -139,5 +165,194 @@
         {/each}
       </ul>
     {/if}
+
+    <section
+      class="rounded-lg border border-[var(--border-default)] bg-[var(--surface-default)] p-5"
+    >
+      <div>
+        <h2 class="font-semibold text-[var(--text-primary)]">Nieuwe e-mailtemplate</h2>
+        <p class="mt-1 text-sm text-[var(--text-secondary)]">
+          Templates worden veilig op de server ingevuld. Elke inhoudswijziging krijgt automatisch
+          een nieuwe versie.
+        </p>
+      </div>
+      <form method="POST" action="?/createTemplate" use:enhance class="mt-4 space-y-3">
+        <div class="grid gap-3 md:grid-cols-2">
+          <label class="space-y-1 text-sm">
+            <span>Naam</span>
+            <input
+              name="name"
+              required
+              class="h-9 w-full rounded-md border border-[var(--border-default)] bg-transparent px-3"
+              placeholder="Installatiepartner – eerste contact"
+            />
+          </label>
+          <label class="space-y-1 text-sm">
+            <span>Doel</span>
+            <input
+              name="purpose"
+              class="h-9 w-full rounded-md border border-[var(--border-default)] bg-transparent px-3"
+              placeholder="installer_outreach"
+            />
+          </label>
+        </div>
+        <label class="block space-y-1 text-sm">
+          <span>Beschrijving</span>
+          <input
+            name="description"
+            class="h-9 w-full rounded-md border border-[var(--border-default)] bg-transparent px-3"
+          />
+        </label>
+        <label class="block space-y-1 text-sm">
+          <span>Onderwerp</span>
+          <input
+            name="subject"
+            required
+            class="h-9 w-full rounded-md border border-[var(--border-default)] bg-transparent px-3"
+          />
+        </label>
+        <label class="block space-y-1 text-sm">
+          <span>Bericht (platte tekst)</span>
+          <textarea
+            name="body_text"
+            required
+            rows="8"
+            class="w-full rounded-md border border-[var(--border-default)] bg-transparent px-3 py-2"
+          ></textarea>
+        </label>
+        <div class="flex justify-end">
+          <Button type="submit" class="gap-1.5"><Plus class="h-4 w-4" /> Template maken</Button>
+        </div>
+      </form>
+    </section>
+
+    <section class="space-y-3">
+      <div>
+        <h2 class="font-semibold text-[var(--text-primary)]">E-mailtemplates</h2>
+        <p class="mt-1 text-sm text-[var(--text-secondary)]">
+          {data.templates.length} template(s). Inactieve templates blijven bewaard voor de verzendhistorie.
+        </p>
+      </div>
+      {#each data.templates as template (template.id)}
+        <details
+          class="rounded-lg border border-[var(--border-default)] bg-[var(--surface-default)]"
+        >
+          <summary class="cursor-pointer list-none p-5">
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="font-medium text-[var(--text-primary)]">{template.name}</span>
+                  <span class="rounded bg-[var(--surface-muted)] px-1.5 py-0.5 text-xs">
+                    v{template.current_version}
+                  </span>
+                  {#if !template.is_active}
+                    <span class="text-xs text-amber-700 dark:text-amber-300">Inactief</span>
+                  {/if}
+                </div>
+                <p class="mt-1 text-sm text-[var(--text-secondary)]">{template.subject}</p>
+              </div>
+              <span class="text-xs text-[var(--text-secondary)]">
+                {template.usage_count}× gebruikt
+              </span>
+            </div>
+          </summary>
+          <div class="border-t border-[var(--border-default)] p-5">
+            <form method="POST" action="?/updateTemplate" use:enhance class="space-y-3">
+              <input type="hidden" name="id" value={template.id} />
+              <div class="grid gap-3 md:grid-cols-2">
+                <label class="space-y-1 text-sm">
+                  <span>Naam</span>
+                  <input
+                    name="name"
+                    required
+                    value={template.name}
+                    class="h-9 w-full rounded-md border border-[var(--border-default)] bg-transparent px-3"
+                  />
+                </label>
+                <label class="space-y-1 text-sm">
+                  <span>Doel</span>
+                  <input
+                    name="purpose"
+                    value={template.purpose}
+                    class="h-9 w-full rounded-md border border-[var(--border-default)] bg-transparent px-3"
+                  />
+                </label>
+              </div>
+              <label class="block space-y-1 text-sm">
+                <span>Beschrijving</span>
+                <input
+                  name="description"
+                  value={template.description}
+                  class="h-9 w-full rounded-md border border-[var(--border-default)] bg-transparent px-3"
+                />
+              </label>
+              <label class="block space-y-1 text-sm">
+                <span>Onderwerp</span>
+                <input
+                  name="subject"
+                  required
+                  value={template.subject}
+                  class="h-9 w-full rounded-md border border-[var(--border-default)] bg-transparent px-3"
+                />
+              </label>
+              <label class="block space-y-1 text-sm">
+                <span>Bericht</span>
+                <textarea
+                  name="body_text"
+                  required
+                  rows="8"
+                  class="w-full rounded-md border border-[var(--border-default)] bg-transparent px-3 py-2"
+                  >{template.body_text}</textarea
+                >
+              </label>
+              <label class="flex items-center gap-2 text-sm">
+                <input type="checkbox" name="is_active" checked={template.is_active} />
+                Actief
+              </label>
+              <div class="flex flex-wrap justify-end gap-2">
+                <Button type="submit" variant="outline" class="gap-1.5">
+                  <Save class="h-3.5 w-3.5" /> Opslaan
+                </Button>
+              </div>
+            </form>
+            <div class="mt-3 flex flex-wrap justify-end gap-2">
+              <form method="POST" action="?/duplicateTemplate" use:enhance>
+                <input type="hidden" name="id" value={template.id} />
+                <input type="hidden" name="name" value="Kopie van {template.name}" />
+                <Button type="submit" variant="outline" size="sm" class="gap-1.5">
+                  <Copy class="h-3.5 w-3.5" /> Dupliceren
+                </Button>
+              </form>
+              {#if template.is_active}
+                <form method="POST" action="?/deactivateTemplate" use:enhance>
+                  <input type="hidden" name="id" value={template.id} />
+                  <Button type="submit" variant="outline" size="sm" class="gap-1.5">
+                    <Archive class="h-3.5 w-3.5" /> Deactiveren
+                  </Button>
+                </form>
+              {/if}
+            </div>
+          </div>
+        </details>
+      {/each}
+    </section>
+
+    <section
+      class="rounded-lg border border-[var(--border-default)] bg-[var(--surface-default)] p-5"
+    >
+      <h2 class="font-semibold text-[var(--text-primary)]">Beschikbare variabelen</h2>
+      <p class="mt-1 text-sm text-[var(--text-secondary)]">
+        Gebruik exact deze notatie. Verzenden wordt geblokkeerd wanneer een gebruikte waarde
+        ontbreekt.
+      </p>
+      <div class="mt-3 grid gap-2 md:grid-cols-2">
+        {#each data.templateVariables as variable (variable.name)}
+          <div class="rounded-md bg-[var(--surface-muted)] p-2 text-xs">
+            <code>{`{{ ${variable.name} }}`}</code>
+            <span class="mt-1 block text-[var(--text-secondary)]">{variable.description}</span>
+          </div>
+        {/each}
+      </div>
+    </section>
   </div>
 </div>

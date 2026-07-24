@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import html
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 from email.message import EmailMessage as MimeEmailMessage
@@ -21,6 +20,7 @@ from googleapiclient.errors import HttpError
 from cases.inbound.parser import parse_raw_email
 from communications.crypto import decrypt_credentials, encrypt_credentials
 from communications.models import EmailThread, LeadEmailMessage, MailboxConnection
+from communications.render import text_to_html
 
 GMAIL_SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
@@ -161,14 +161,6 @@ def connect_mailbox(*, code: str, state: str, org, user) -> MailboxConnection:
     return mailbox
 
 
-def _html_from_text(value: str) -> str:
-    paragraphs = [
-        f"<p>{html.escape(part).replace(chr(10), '<br>')}</p>"
-        for part in value.split("\n\n")
-    ]
-    return "".join(paragraphs)
-
-
 def _message_id_header(value: str) -> str:
     value = value.strip()
     if not value:
@@ -205,7 +197,7 @@ def _raw_message(
             )
 
     message.set_content(body_text)
-    message.add_alternative(_html_from_text(body_text), subtype="html")
+    message.add_alternative(text_to_html(body_text), subtype="html")
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode("ascii")
     return raw, rfc_message_id
 
@@ -268,7 +260,7 @@ def send_lead_email(
         to_addresses=[lead.email],
         subject=subject,
         body_text=body_text,
-        body_html=_html_from_text(body_text),
+        body_html=text_to_html(body_text),
         provider_labels=result.get("labelIds", ["SENT"]),
         occurred_at=now,
     )
@@ -325,7 +317,7 @@ def reply_to_thread(*, thread: EmailThread, body_text: str) -> LeadEmailMessage:
         to_addresses=[lead.email],
         subject=thread.subject,
         body_text=body_text,
-        body_html=_html_from_text(body_text),
+        body_html=text_to_html(body_text),
         provider_labels=result.get("labelIds", ["SENT"]),
         occurred_at=now,
     )

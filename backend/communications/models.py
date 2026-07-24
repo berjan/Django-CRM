@@ -143,3 +143,186 @@ class EmailSuppression(BaseOrgModel):
 
     def __str__(self):
         return f"{self.email_address}: {self.reason}"
+
+
+class EmailTemplate(BaseOrgModel):
+    """Reusable lead email content with immutable version history."""
+
+    SCOPE_ORG = "org"
+    SCOPE_PERSONAL = "personal"
+    SCOPE_CHOICES = [
+        (SCOPE_ORG, "Organization"),
+        (SCOPE_PERSONAL, "Personal"),
+    ]
+
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True, default="")
+    purpose = models.CharField(max_length=100, blank=True, default="")
+    language = models.CharField(max_length=10, default="nl")
+    scope = models.CharField(max_length=16, choices=SCOPE_CHOICES, default=SCOPE_ORG)
+    owner = models.ForeignKey(
+        "common.Profile",
+        on_delete=models.CASCADE,
+        related_name="email_templates",
+        blank=True,
+        null=True,
+    )
+    subject = models.CharField(max_length=512)
+    body_text = models.TextField()
+    is_active = models.BooleanField(default=True)
+    current_version = models.PositiveIntegerField(default=1)
+    usage_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = "communication_email_template"
+        ordering = ("name",)
+        constraints = [
+            models.UniqueConstraint(
+                fields=["org", "name", "scope", "owner"],
+                name="uniq_email_template_name_scope_owner",
+                nulls_distinct=False,
+            )
+        ]
+        indexes = [
+            models.Index(fields=["org", "is_active"]),
+            models.Index(fields=["org", "scope", "owner"]),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+class EmailTemplateVersion(BaseOrgModel):
+    """Immutable snapshot of template content used for audit and drafts."""
+
+    template = models.ForeignKey(
+        EmailTemplate, on_delete=models.CASCADE, related_name="versions"
+    )
+    version = models.PositiveIntegerField()
+    subject = models.CharField(max_length=512)
+    body_text = models.TextField()
+
+    class Meta:
+        db_table = "communication_email_template_version"
+        ordering = ("-version",)
+        constraints = [
+            models.UniqueConstraint(
+                fields=["template", "version"],
+                name="uniq_email_template_version",
+            )
+        ]
+        indexes = [models.Index(fields=["org", "template", "-version"])]
+
+    def __str__(self):
+        return f"{self.template.name} v{self.version}"
+
+
+class LeadEmailTemplateAssignment(BaseOrgModel):
+    """Templates selected for a lead, with at most one default."""
+
+    lead = models.ForeignKey(
+        "leads.Lead",
+        on_delete=models.CASCADE,
+        related_name="email_template_assignments",
+    )
+    template = models.ForeignKey(
+        EmailTemplate,
+        on_delete=models.CASCADE,
+        related_name="lead_assignments",
+    )
+    is_default = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "communication_lead_template_assignment"
+        ordering = ("-is_default", "created_at")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["lead", "template"],
+                name="uniq_email_template_assignment",
+            ),
+            models.UniqueConstraint(
+                fields=["lead"],
+                condition=models.Q(is_default=True),
+                name="uniq_default_email_template_per_lead",
+            ),
+        ]
+        indexes = [models.Index(fields=["org", "lead", "-is_default"])]
+
+    def __str__(self):
+        return f"{self.lead_id}: {self.template.name}"
+
+
+class EmailDraft(BaseOrgModel):
+    """Reviewable content that is the only supported input to a new send."""
+
+    STATUS_DRAFT = "draft"
+    STATUS_SENT = "sent"
+    STATUS_CHOICES = [
+        (STATUS_DRAFT, "Draft"),
+        (STATUS_SENT, "Sent"),
+    ]
+    SOURCE_MANUAL = "manual"
+    SOURCE_TEMPLATE = "template"
+    SOURCE_AI = "ai"
+    SOURCE_CHOICES = [
+        (SOURCE_MANUAL, "Manual"),
+        (SOURCE_TEMPLATE, "Template"),
+        (SOURCE_AI, "AI"),
+    ]
+
+    lead = models.ForeignKey(
+        "leads.Lead", on_delete=models.CASCADE, related_name="email_drafts"
+    )
+    mailbox = models.ForeignKey(
+        MailboxConnection, on_delete=models.PROTECT, related_name="drafts"
+    )
+    template_version = models.ForeignKey(
+        EmailTemplateVersion,
+        on_delete=models.PROTECT,
+        related_name="drafts",
+        blank=True,
+        null=True,
+    )
+    recipient = models.EmailField()
+    subject = models.CharField(max_length=512)
+    body_text = models.TextField()
+    body_html = models.TextField(blank=True, default="")
+    follow_up_days = models.PositiveSmallIntegerField(default=5)
+    source = models.CharField(
+        max_length=16, choices=SOURCE_CHOICES, default=SOURCE_MANUAL
+    )
+    status = models.CharField(
+        max_length=16, choices=STATUS_CHOICES, default=STATUS_DRAFT
+    )
+    sent_message = models.OneToOneField(
+        LeadEmailMessage,
+        on_delete=models.PROTECT,
+        related_name="source_draft",
+        blank=True,
+        null=True,
+    )
+    idempotency_key = models.CharField(max_length=128, blank=True, default="")
+    sent_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        db_table = "communication_email_draft"
+        ordering = ("-created_at",)
+        constraints = [
+            models.UniqueConstraint(
+                fields=["org", "idempotency_key"],
+                condition=~models.Q(idempotency_key=""),
+                name="uniq_email_draft_idempotency_key",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(follow_up_days__gte=1)
+                & models.Q(follow_up_days__lte=30),
+                name="email_draft_follow_up_days_range",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["org", "lead", "-created_at"]),
+            models.Index(fields=["org", "status"]),
+        ]
+
+    def __str__(self):
+        return f"{self.recipient}: {self.subject}"

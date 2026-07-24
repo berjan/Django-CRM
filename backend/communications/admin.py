@@ -1,9 +1,13 @@
 from django.contrib import admin
 
 from communications.models import (
+    EmailDraft,
     EmailSuppression,
+    EmailTemplate,
+    EmailTemplateVersion,
     EmailThread,
     LeadEmailMessage,
+    LeadEmailTemplateAssignment,
     MailboxConnection,
 )
 
@@ -23,3 +27,7 @@ class MailboxConnectionAdmin(admin.ModelAdmin):
 admin.site.register(EmailThread)
 admin.site.register(LeadEmailMessage)
 admin.site.register(EmailSuppression)
+admin.site.register(EmailTemplate)
+admin.site.register(EmailTemplateVersion)
+admin.site.register(LeadEmailTemplateAssignment)
+admin.site.register(EmailDraft)

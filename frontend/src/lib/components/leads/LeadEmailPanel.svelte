@@ -6,12 +6,15 @@
   import { Textarea } from '$lib/components/ui/textarea/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
 
-  /** @type {{ lead: any, mailboxes?: any[] }} */
-  let { lead, mailboxes = [] } = $props();
+  /** @type {{ lead: any, mailboxes?: any[], templates?: any[] }} */
+  let { lead, mailboxes = [], templates = [] } = $props();
 
   let threads = $state([]);
+  let drafts = $state([]);
+  let assignments = $state([]);
   let loading = $state(false);
   let sending = $state(false);
+  let savingDraft = $state(false);
   let composeOpen = $state(false);
   let expandedThreadId = $state('');
   let mailboxId = $state('');
@@ -20,36 +23,48 @@
   let followUpDays = $state(5);
   let replyText = $state('');
   let loadedLeadId = $state('');
+  let selectedTemplateId = $state('');
+  let draftId = $state('');
+  let assignAsDefault = $state(false);
 
   const activeMailboxes = $derived(mailboxes.filter((mailbox) => mailbox.is_active));
-
-  function leadName() {
-    return [lead?.firstName, lead?.lastName].filter(Boolean).join(' ') || 'daar';
-  }
+  const activeTemplates = $derived(templates.filter((template) => template.is_active));
 
   function resetComposer() {
     mailboxId = activeMailboxes[0]?.id || '';
-    subject = 'Kennismaken als installatiepartner in regio Apeldoorn';
-    bodyText = `Beste ${leadName()},
-
-Wij zijn Bruens Duurzame Technieken uit Apeldoorn. Wij bezoeken de klant, maken de offerte, bestellen de materialen en bereiden het werk voor. Voor de uitvoering zoeken we betrouwbare installatiepartners.
-
-Zou je openstaan voor een korte kennismaking om te bespreken welk type installatiewerk en welke regio bij je passen?
-
-Met vriendelijke groet,
-Bruens Duurzame Technieken`;
+    const defaultAssignment = assignments.find((assignment) => assignment.is_default);
+    selectedTemplateId = defaultAssignment?.template?.id || activeTemplates[0]?.id || '';
+    subject = '';
+    bodyText = '';
     followUpDays = 5;
+    draftId = '';
+    assignAsDefault = Boolean(defaultAssignment);
   }
 
-  async function loadThreads() {
+  async function loadEmailWorkspace() {
     if (!lead?.id) return;
     loading = true;
     try {
-      const response = await fetch(`/frontend-api/communications/leads/${lead.id}/threads`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'E-mails laden mislukt');
-      threads = data.threads || [];
+      const [threadResponse, draftResponse, assignmentResponse] = await Promise.all([
+        fetch(`/frontend-api/communications/leads/${lead.id}/threads`),
+        fetch(`/frontend-api/communications/leads/${lead.id}/drafts`),
+        fetch(`/frontend-api/communications/leads/${lead.id}/template-assignments`)
+      ]);
+      const [threadData, draftData, assignmentData] = await Promise.all([
+        threadResponse.json(),
+        draftResponse.json(),
+        assignmentResponse.json()
+      ]);
+      if (!threadResponse.ok) throw new Error(threadData.error || 'E-mails laden mislukt');
+      if (!draftResponse.ok) throw new Error(draftData.error || 'Concepten laden mislukt');
+      if (!assignmentResponse.ok) {
+        throw new Error(assignmentData.error || 'Template-toewijzingen laden mislukt');
+      }
+      threads = threadData.threads || [];
+      drafts = draftData.results || [];
+      assignments = assignmentData.results || [];
       if (threads.length && !expandedThreadId) expandedThreadId = threads[0].id;
+      if (!draftId) resetComposer();
     } catch (err) {
       toast.error(err?.message || 'E-mails laden mislukt');
     } finally {
@@ -64,7 +79,7 @@ Bruens Duurzame Technieken`;
       expandedThreadId = '';
       composeOpen = false;
       resetComposer();
-      loadThreads();
+      loadEmailWorkspace();
     }
   });
 
@@ -72,25 +87,123 @@ Bruens Duurzame Technieken`;
     if (!mailboxId && activeMailboxes.length) mailboxId = activeMailboxes[0].id;
   });
 
-  async function sendEmail() {
-    if (!mailboxId || !subject.trim() || !bodyText.trim()) return;
-    sending = true;
-    try {
-      const response = await fetch(`/frontend-api/communications/leads/${lead.id}/threads`, {
+  function openDraft(draft) {
+    draftId = draft.id;
+    mailboxId = draft.mailbox;
+    selectedTemplateId = draft.template_id || '';
+    subject = draft.subject;
+    bodyText = draft.body_text;
+    followUpDays = draft.follow_up_days;
+    composeOpen = true;
+  }
+
+  async function saveTemplateAssignment() {
+    if (!selectedTemplateId) return;
+    const response = await fetch(
+      `/frontend-api/communications/leads/${lead.id}/template-assignments`,
+      {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          mailbox_id: mailboxId,
+          template_id: selectedTemplateId,
+          is_default: assignAsDefault
+        })
+      }
+    );
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Template-toewijzing opslaan mislukt');
+    const existing = assignments.findIndex((assignment) => assignment.id === data.id);
+    if (assignAsDefault) {
+      assignments = assignments.map((assignment) => ({ ...assignment, is_default: false }));
+    }
+    assignments =
+      existing >= 0
+        ? assignments.map((assignment, index) => (index === existing ? data : assignment))
+        : [...assignments, data];
+  }
+
+  async function createDraft() {
+    if (!mailboxId) throw new Error('Kies eerst een mailbox');
+    savingDraft = true;
+    try {
+      const payload = selectedTemplateId
+        ? {
+            mailbox_id: mailboxId,
+            template_id: selectedTemplateId,
+            follow_up_days: Number(followUpDays)
+          }
+        : {
+            mailbox_id: mailboxId,
+            subject: subject.trim(),
+            body_text: bodyText.trim(),
+            follow_up_days: Number(followUpDays)
+          };
+      const response = await fetch(`/frontend-api/communications/leads/${lead.id}/drafts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Concept maken mislukt');
+      draftId = data.id;
+      subject = data.subject;
+      bodyText = data.body_text;
+      followUpDays = data.follow_up_days;
+      drafts = [data, ...drafts.filter((draft) => draft.id !== data.id)];
+      if (selectedTemplateId) await saveTemplateAssignment();
+      return data;
+    } finally {
+      savingDraft = false;
+    }
+  }
+
+  async function saveDraft() {
+    if (!draftId) return createDraft();
+    savingDraft = true;
+    try {
+      const response = await fetch(`/frontend-api/communications/drafts/${draftId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           subject: subject.trim(),
           body_text: bodyText.trim(),
           follow_up_days: Number(followUpDays)
         })
       });
       const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Concept opslaan mislukt');
+      drafts = drafts.map((draft) => (draft.id === data.id ? data : draft));
+      return data;
+    } finally {
+      savingDraft = false;
+    }
+  }
+
+  async function prepareDraft() {
+    try {
+      await (draftId ? saveDraft() : createDraft());
+      toast.success('Concept opgeslagen');
+    } catch (err) {
+      toast.error(err?.message || 'Concept opslaan mislukt');
+    }
+  }
+
+  async function sendEmail() {
+    if (!mailboxId) return;
+    sending = true;
+    try {
+      if (!draftId) await createDraft();
+      else await saveDraft();
+      const response = await fetch(`/frontend-api/communications/drafts/${draftId}/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idempotency_key: crypto.randomUUID() })
+      });
+      const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'E-mail verzenden mislukt');
       toast.success(`E-mail verzonden naar ${lead.email}`);
       composeOpen = false;
-      await loadThreads();
+      await loadEmailWorkspace();
     } catch (err) {
       toast.error(err?.message || 'E-mail verzenden mislukt');
     } finally {
@@ -111,7 +224,7 @@ Bruens Duurzame Technieken`;
       if (!response.ok) throw new Error(data.error || 'Antwoord verzenden mislukt');
       replyText = '';
       toast.success('Antwoord verzonden');
-      await loadThreads();
+      await loadEmailWorkspace();
     } catch (err) {
       toast.error(err?.message || 'Antwoord verzenden mislukt');
     } finally {
@@ -161,6 +274,38 @@ Bruens Duurzame Technieken`;
 
   {#if composeOpen}
     <div class="space-y-3 rounded-lg border border-[var(--border-default)] p-3">
+      <div class="space-y-1">
+        <Label for="lead-email-template">Template</Label>
+        <select
+          id="lead-email-template"
+          bind:value={selectedTemplateId}
+          onchange={() => {
+            draftId = '';
+            subject = '';
+            bodyText = '';
+            assignAsDefault = Boolean(
+              assignments.find(
+                (assignment) =>
+                  assignment.template?.id === selectedTemplateId && assignment.is_default
+              )
+            );
+          }}
+          class="h-9 w-full rounded-md border border-[var(--border-default)] bg-[var(--surface-default)] px-3 text-sm"
+        >
+          <option value="">Zonder template</option>
+          {#each activeTemplates as template (template.id)}
+            <option value={template.id}>
+              {template.name} (v{template.current_version})
+            </option>
+          {/each}
+        </select>
+        {#if selectedTemplateId}
+          <label class="flex items-center gap-2 pt-1 text-xs text-[var(--text-secondary)]">
+            <input type="checkbox" bind:checked={assignAsDefault} />
+            Aan deze lead toekennen{assignAsDefault ? ' en als standaard gebruiken' : ''}
+          </label>
+        {/if}
+      </div>
       <div class="grid gap-3 sm:grid-cols-2">
         <div class="space-y-1">
           <Label for="lead-email-from">Van</Label>
@@ -181,7 +326,12 @@ Bruens Duurzame Technieken`;
       </div>
       <div class="space-y-1">
         <Label for="lead-email-subject">Onderwerp</Label>
-        <Input id="lead-email-subject" bind:value={subject} maxlength="512" />
+        <Input
+          id="lead-email-subject"
+          bind:value={subject}
+          maxlength="512"
+          placeholder={selectedTemplateId ? 'Pas eerst de template toe' : 'Onderwerp'}
+        />
       </div>
       <div class="space-y-1">
         <Label for="lead-email-body">Bericht</Label>
@@ -198,16 +348,43 @@ Bruens Duurzame Technieken`;
             bind:value={followUpDays}
           />
         </div>
-        <Button
-          type="button"
-          onclick={sendEmail}
-          disabled={sending || !subject.trim() || !bodyText.trim()}
-          class="gap-1.5"
-        >
-          {#if sending}<Loader2 class="h-3.5 w-3.5 animate-spin" />{/if}
-          Verzenden
-        </Button>
+        <div class="flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onclick={prepareDraft}
+            disabled={savingDraft || (!selectedTemplateId && (!subject.trim() || !bodyText.trim()))}
+          >
+            {#if savingDraft}<Loader2 class="mr-1.5 h-3.5 w-3.5 animate-spin" />{/if}
+            {selectedTemplateId && !draftId ? 'Template toepassen' : 'Concept opslaan'}
+          </Button>
+          <Button
+            type="button"
+            onclick={sendEmail}
+            disabled={sending || (!selectedTemplateId && (!subject.trim() || !bodyText.trim()))}
+            class="gap-1.5"
+          >
+            {#if sending}<Loader2 class="h-3.5 w-3.5 animate-spin" />{/if}
+            Controleren en verzenden
+          </Button>
+        </div>
       </div>
+      {#if drafts.some((draft) => draft.status === 'draft' && draft.id !== draftId)}
+        <div class="border-t border-[var(--border-default)] pt-3">
+          <p class="mb-2 text-xs font-medium text-[var(--text-secondary)]">Opgeslagen concepten</p>
+          <div class="flex flex-wrap gap-2">
+            {#each drafts.filter((draft) => draft.status === 'draft' && draft.id !== draftId) as draft (draft.id)}
+              <button
+                type="button"
+                class="rounded-md border border-[var(--border-default)] px-2 py-1 text-left text-xs hover:bg-[var(--surface-muted)]"
+                onclick={() => openDraft(draft)}
+              >
+                {draft.subject}
+              </button>
+            {/each}
+          </div>
+        </div>
+      {/if}
     </div>
   {/if}
 

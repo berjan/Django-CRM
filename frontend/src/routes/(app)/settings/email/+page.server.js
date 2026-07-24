@@ -36,14 +36,16 @@ export async function load({ cookies, locals, url }) {
   }
 
   try {
-    const response = await apiRequest(
-      '/communications/mailboxes/',
-      {},
-      { cookies, org: locals.org }
-    );
+    const [response, templateResponse, variableResponse] = await Promise.all([
+      apiRequest('/communications/mailboxes/', {}, { cookies, org: locals.org }),
+      apiRequest('/communications/templates/', {}, { cookies, org: locals.org }),
+      apiRequest('/communications/templates/variables/', {}, { cookies, org: locals.org })
+    ]);
     return {
       configured: response.configured,
       mailboxes: response.mailboxes || [],
+      templates: templateResponse.results || [],
+      templateVariables: variableResponse.results || [],
       connected: url.searchParams.get('connected') === '1',
       oauthError: url.searchParams.get('oauth_error') || ''
     };
@@ -101,6 +103,93 @@ export const actions = {
       return { success: true, disconnected: true };
     } catch (err) {
       return fail(400, { error: err?.message || 'Mailbox disconnect failed' });
+    }
+  },
+
+  createTemplate: async ({ request, cookies, locals }) => {
+    requireAdmin(locals.profile);
+    const data = await request.formData();
+    try {
+      await apiRequest(
+        '/communications/templates/',
+        {
+          method: 'POST',
+          body: {
+            name: String(data.get('name') || ''),
+            description: String(data.get('description') || ''),
+            purpose: String(data.get('purpose') || ''),
+            language: 'nl',
+            scope: 'org',
+            subject: String(data.get('subject') || ''),
+            body_text: String(data.get('body_text') || '')
+          }
+        },
+        { cookies, org: locals.org }
+      );
+      return { success: true, templateCreated: true };
+    } catch (err) {
+      return fail(400, { error: err?.message || 'Template maken mislukt' });
+    }
+  },
+
+  updateTemplate: async ({ request, cookies, locals }) => {
+    requireAdmin(locals.profile);
+    const data = await request.formData();
+    const id = String(data.get('id') || '');
+    try {
+      await apiRequest(
+        `/communications/templates/${id}/`,
+        {
+          method: 'PATCH',
+          body: {
+            name: String(data.get('name') || ''),
+            description: String(data.get('description') || ''),
+            purpose: String(data.get('purpose') || ''),
+            subject: String(data.get('subject') || ''),
+            body_text: String(data.get('body_text') || ''),
+            is_active: data.get('is_active') === 'on'
+          }
+        },
+        { cookies, org: locals.org }
+      );
+      return { success: true, templateUpdated: true };
+    } catch (err) {
+      return fail(400, { error: err?.message || 'Template opslaan mislukt' });
+    }
+  },
+
+  duplicateTemplate: async ({ request, cookies, locals }) => {
+    requireAdmin(locals.profile);
+    const data = await request.formData();
+    const id = String(data.get('id') || '');
+    try {
+      await apiRequest(
+        `/communications/templates/${id}/duplicate/`,
+        {
+          method: 'POST',
+          body: { name: String(data.get('name') || ''), scope: 'org' }
+        },
+        { cookies, org: locals.org }
+      );
+      return { success: true, templateDuplicated: true };
+    } catch (err) {
+      return fail(400, { error: err?.message || 'Template dupliceren mislukt' });
+    }
+  },
+
+  deactivateTemplate: async ({ request, cookies, locals }) => {
+    requireAdmin(locals.profile);
+    const data = await request.formData();
+    const id = String(data.get('id') || '');
+    try {
+      await apiRequest(
+        `/communications/templates/${id}/`,
+        { method: 'DELETE' },
+        { cookies, org: locals.org }
+      );
+      return { success: true, templateDeactivated: true };
+    } catch (err) {
+      return fail(400, { error: err?.message || 'Template deactiveren mislukt' });
     }
   }
 };

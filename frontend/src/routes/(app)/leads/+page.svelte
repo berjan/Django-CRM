@@ -1863,7 +1863,11 @@
 
   {#snippet activitySection()}
     {#if drawerMode !== 'create' && drawerData}
-      <LeadEmailPanel lead={drawerData} mailboxes={data.communicationMailboxes || []} />
+      <LeadEmailPanel
+        lead={drawerData}
+        mailboxes={data.communicationMailboxes || []}
+        templates={data.communicationTemplates || []}
+      />
       <CommentSection
         entityId={drawerData.id}
         entityType="leads"

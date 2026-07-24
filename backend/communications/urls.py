@@ -1,9 +1,19 @@
 from django.urls import path
 
 from communications.views import (
+    EmailDraftDetailView,
+    EmailDraftSendView,
+    EmailTemplateDetailView,
+    EmailTemplateDuplicateView,
+    EmailTemplateListCreateView,
+    EmailTemplatePreviewView,
+    EmailTemplateVariableListView,
     GmailCallbackView,
     GmailConnectView,
+    LeadDraftListCreateView,
     LeadEmailSendView,
+    LeadTemplateAssignmentDetailView,
+    LeadTemplateAssignmentListCreateView,
     LeadThreadListView,
     MailboxDisconnectView,
     MailboxListView,
@@ -14,6 +24,27 @@ from communications.views import (
 app_name = "api_communications"
 
 urlpatterns = [
+    path("templates/", EmailTemplateListCreateView.as_view(), name="templates"),
+    path(
+        "templates/variables/",
+        EmailTemplateVariableListView.as_view(),
+        name="template_variables",
+    ),
+    path(
+        "templates/<uuid:pk>/",
+        EmailTemplateDetailView.as_view(),
+        name="template_detail",
+    ),
+    path(
+        "templates/<uuid:pk>/duplicate/",
+        EmailTemplateDuplicateView.as_view(),
+        name="template_duplicate",
+    ),
+    path(
+        "templates/<uuid:pk>/preview/",
+        EmailTemplatePreviewView.as_view(),
+        name="template_preview",
+    ),
     path("mailboxes/", MailboxListView.as_view(), name="mailboxes"),
     path("gmail/connect/", GmailConnectView.as_view(), name="gmail_connect"),
     path("gmail/callback/", GmailCallbackView.as_view(), name="gmail_callback"),
@@ -36,6 +67,31 @@ urlpatterns = [
         "leads/<uuid:lead_id>/send/",
         LeadEmailSendView.as_view(),
         name="lead_send",
+    ),
+    path(
+        "leads/<uuid:lead_id>/template-assignments/",
+        LeadTemplateAssignmentListCreateView.as_view(),
+        name="lead_template_assignments",
+    ),
+    path(
+        "template-assignments/<uuid:pk>/",
+        LeadTemplateAssignmentDetailView.as_view(),
+        name="lead_template_assignment_detail",
+    ),
+    path(
+        "leads/<uuid:lead_id>/drafts/",
+        LeadDraftListCreateView.as_view(),
+        name="lead_drafts",
+    ),
+    path(
+        "drafts/<uuid:pk>/",
+        EmailDraftDetailView.as_view(),
+        name="draft_detail",
+    ),
+    path(
+        "drafts/<uuid:pk>/send/",
+        EmailDraftSendView.as_view(),
+        name="draft_send",
     ),
     path(
         "threads/<uuid:pk>/reply/",
