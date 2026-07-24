@@ -280,6 +280,21 @@
           {/if}
         </SectionCard>
 
+        {#if tab === 'overview'}
+          <div
+            class="rounded-xl border border-[color:var(--border-faint)] bg-[color:var(--bg-card)] p-4"
+          >
+            <LeadEmailPanel
+              {lead}
+              mailboxes={data.communicationMailboxes || []}
+              templates={data.communicationTemplates || []}
+              variant="compact"
+              embedded
+              onunreadchange={(count) => (emailUnreadCount = count)}
+            />
+          </div>
+        {/if}
+
         <!-- Custom fields -->
         {#if customFieldDefinitions.length > 0}
           <CustomFieldsPanel
@@ -714,12 +729,14 @@
   </Tabs.Content>
 
   <Tabs.Content class="" value="email">
-    <LeadEmailPanel
-      {lead}
-      mailboxes={data.communicationMailboxes || []}
-      templates={data.communicationTemplates || []}
-      variant="full"
-      onunreadchange={(count) => (emailUnreadCount = count)}
-    />
+    {#if tab === 'email'}
+      <LeadEmailPanel
+        {lead}
+        mailboxes={data.communicationMailboxes || []}
+        templates={data.communicationTemplates || []}
+        variant="full"
+        onunreadchange={(count) => (emailUnreadCount = count)}
+      />
+    {/if}
   </Tabs.Content>
 </Tabs.Root>

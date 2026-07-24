@@ -16,12 +16,13 @@
   import { Textarea } from '$lib/components/ui/textarea/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
 
-  /** @type {{ lead: any, mailboxes?: any[], templates?: any[], variant?: 'compact' | 'full', onunreadchange?: (count: number) => void }} */
+  /** @type {{ lead: any, mailboxes?: any[], templates?: any[], variant?: 'compact' | 'full', embedded?: boolean, onunreadchange?: (count: number) => void }} */
   let {
     lead,
     mailboxes = [],
     templates = [],
     variant = 'compact',
+    embedded = false,
     onunreadchange = () => {}
   } = $props();
 
@@ -438,7 +439,9 @@
 <section
   class={variant === 'full'
     ? 'space-y-4 py-4 pb-8'
-    : 'space-y-3 border-b border-[var(--border-default)] pb-5'}
+    : embedded
+      ? 'space-y-3'
+      : 'space-y-3 border-b border-[var(--border-default)] pb-5'}
 >
   <div class="flex flex-wrap items-center justify-between gap-3">
     <div class="flex items-center gap-2">
