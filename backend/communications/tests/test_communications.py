@@ -382,7 +382,9 @@ def test_thread_read_state_is_personal(admin_client, user_client, org_a, mailbox
 
 @pytest.mark.django_db
 @override_settings(GMAIL_TOKEN_ENCRYPTION_KEY="test-encryption-key")
-def test_reply_draft_sends_in_existing_thread(admin_client, mailbox, lead):
+def test_reply_draft_sends_in_existing_thread_with_nullable_relations(
+    admin_client, mailbox, lead
+):
     service = gmail_service(
         {"id": "gmail-original", "threadId": "gmail-reply-thread"},
         {"id": "gmail-reply-draft", "threadId": "gmail-reply-thread"},

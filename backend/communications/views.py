@@ -751,7 +751,7 @@ class EmailDraftSendView(APIView):
                 {"idempotency_key": "A key of at most 128 characters is required"}
             )
         draft = get_object_or_404(
-            EmailDraft.objects.select_for_update().select_related(
+            EmailDraft.objects.select_for_update(of=("self",)).select_related(
                 "lead",
                 "mailbox",
                 "thread",
