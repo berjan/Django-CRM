@@ -6,7 +6,7 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app
 
 # Install dependencies (layer cached)
-COPY package.json pnpm-lock.yaml* ./
+COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml .npmrc* ./
 RUN pnpm install --frozen-lockfile || pnpm install
 
 EXPOSE 5173
