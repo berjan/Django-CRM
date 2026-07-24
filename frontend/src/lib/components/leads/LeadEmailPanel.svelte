@@ -45,7 +45,7 @@ Bruens Duurzame Technieken`;
     if (!lead?.id) return;
     loading = true;
     try {
-      const response = await fetch(`/api/communications/leads/${lead.id}/threads`);
+      const response = await fetch(`/frontend-api/communications/leads/${lead.id}/threads`);
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'E-mails laden mislukt');
       threads = data.threads || [];
@@ -76,7 +76,7 @@ Bruens Duurzame Technieken`;
     if (!mailboxId || !subject.trim() || !bodyText.trim()) return;
     sending = true;
     try {
-      const response = await fetch(`/api/communications/leads/${lead.id}/threads`, {
+      const response = await fetch(`/frontend-api/communications/leads/${lead.id}/threads`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -102,7 +102,7 @@ Bruens Duurzame Technieken`;
     if (!replyText.trim()) return;
     sending = true;
     try {
-      const response = await fetch(`/api/communications/threads/${threadId}/reply`, {
+      const response = await fetch(`/frontend-api/communications/threads/${threadId}/reply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ body_text: replyText.trim() })
