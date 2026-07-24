@@ -18,6 +18,9 @@ from communications.views import (
     MailboxDisconnectView,
     MailboxListView,
     MailboxSyncView,
+    ThreadDetailView,
+    ThreadDraftListCreateView,
+    ThreadReadView,
     ThreadReplyView,
 )
 
@@ -92,6 +95,21 @@ urlpatterns = [
         "drafts/<uuid:pk>/send/",
         EmailDraftSendView.as_view(),
         name="draft_send",
+    ),
+    path(
+        "threads/<uuid:pk>/",
+        ThreadDetailView.as_view(),
+        name="thread_detail",
+    ),
+    path(
+        "threads/<uuid:pk>/read/",
+        ThreadReadView.as_view(),
+        name="thread_read",
+    ),
+    path(
+        "threads/<uuid:pk>/drafts/",
+        ThreadDraftListCreateView.as_view(),
+        name="thread_drafts",
     ),
     path(
         "threads/<uuid:pk>/reply/",

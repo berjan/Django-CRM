@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from django.test import override_settings
+from django.utils import timezone
 from googleapiclient.errors import HttpError
 
 from communications.crypto import decrypt_credentials, encrypt_credentials
@@ -340,3 +341,78 @@ def test_sync_skips_history_messages_that_gmail_deleted(mailbox):
     assert ingested == 0
     assert mailbox.provider_history_id == "200"
     assert mailbox.last_error == ""
+
+
+@pytest.mark.django_db
+def test_thread_read_state_is_personal(admin_client, user_client, org_a, mailbox, lead):
+    thread = EmailThread.objects.create(
+        org=org_a,
+        mailbox=mailbox,
+        lead=lead,
+        provider_thread_id="gmail-unread-thread",
+        subject="Nieuw antwoord",
+        last_message_at=timezone.now(),
+        reply_received_at=timezone.now(),
+    )
+    LeadEmailMessage.objects.create(
+        org=org_a,
+        thread=thread,
+        mailbox=mailbox,
+        provider_message_id="gmail-inbound-unread",
+        direction=LeadEmailMessage.DIRECTION_INBOUND,
+        from_address=lead.email,
+        to_addresses=[mailbox.email_address],
+        subject=thread.subject,
+        body_text="Dit is een nieuw antwoord.",
+        occurred_at=timezone.now(),
+    )
+
+    before = admin_client.get(f"/api/communications/leads/{lead.id}/threads/")
+    marked = admin_client.post(f"/api/communications/threads/{thread.id}/read/")
+    other_user = user_client.get(f"/api/communications/leads/{lead.id}/threads/")
+
+    assert before.status_code == 200
+    assert before.json()["threads"][0]["status"] == "new_reply"
+    assert before.json()["threads"][0]["unread_count"] == 1
+    assert marked.status_code == 200
+    assert marked.json()["is_unread"] is False
+    assert marked.json()["status"] == "reply_received"
+    assert other_user.json()["threads"][0]["is_unread"] is True
+
+
+@pytest.mark.django_db
+@override_settings(GMAIL_TOKEN_ENCRYPTION_KEY="test-encryption-key")
+def test_reply_draft_sends_in_existing_thread(admin_client, mailbox, lead):
+    service = gmail_service(
+        {"id": "gmail-original", "threadId": "gmail-reply-thread"},
+        {"id": "gmail-reply-draft", "threadId": "gmail-reply-thread"},
+    )
+
+    with patch("communications.gmail._service", return_value=service):
+        original = send_lead_email(
+            mailbox=mailbox,
+            lead=lead,
+            subject="Bestaande thread",
+            body_text="Eerste bericht",
+        )
+        created = admin_client.post(
+            f"/api/communications/threads/{original.thread_id}/drafts/",
+            {"body_text": "Antwoord vanuit een concept", "follow_up_days": 8},
+            format="json",
+        )
+        sent = admin_client.post(
+            f"/api/communications/drafts/{created.json()['id']}/send/",
+            {"idempotency_key": "reply-draft-once"},
+            format="json",
+        )
+
+    assert created.status_code == 201
+    assert created.json()["thread"] == str(original.thread_id)
+    assert sent.status_code == 200
+    assert sent.json()["status"] == EmailDraft.STATUS_SENT
+    second_send = service.users.return_value.messages.return_value.send.call_args_list[
+        1
+    ]
+    assert second_send.kwargs["body"]["threadId"] == "gmail-reply-thread"
+    lead.refresh_from_db()
+    assert (lead.next_follow_up - lead.last_contacted).days == 8

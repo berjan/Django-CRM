@@ -66,6 +66,35 @@ class EmailThread(BaseOrgModel):
         return f"{self.subject or self.provider_thread_id} — {self.lead_id}"
 
 
+class ThreadReadState(BaseOrgModel):
+    """Per-CRM-user read position for a lead email thread."""
+
+    thread = models.ForeignKey(
+        EmailThread, on_delete=models.CASCADE, related_name="read_states"
+    )
+    profile = models.ForeignKey(
+        "common.Profile",
+        on_delete=models.CASCADE,
+        related_name="email_thread_read_states",
+    )
+    last_read_at = models.DateTimeField()
+
+    class Meta:
+        db_table = "communication_thread_read_state"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["thread", "profile"],
+                name="uniq_email_thread_read_state",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["org", "profile", "-last_read_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.profile_id}: {self.thread_id}"
+
+
 class LeadEmailMessage(BaseOrgModel):
     """A synchronized inbound or outbound Gmail message."""
 
@@ -272,6 +301,13 @@ class EmailDraft(BaseOrgModel):
 
     lead = models.ForeignKey(
         "leads.Lead", on_delete=models.CASCADE, related_name="email_drafts"
+    )
+    thread = models.ForeignKey(
+        EmailThread,
+        on_delete=models.CASCADE,
+        related_name="drafts",
+        blank=True,
+        null=True,
     )
     mailbox = models.ForeignKey(
         MailboxConnection, on_delete=models.PROTECT, related_name="drafts"

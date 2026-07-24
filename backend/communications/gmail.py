@@ -273,7 +273,9 @@ def send_lead_email(
 
 
 @transaction.atomic
-def reply_to_thread(*, thread: EmailThread, body_text: str) -> LeadEmailMessage:
+def reply_to_thread(
+    *, thread: EmailThread, body_text: str, follow_up_days: int = 5
+) -> LeadEmailMessage:
     mailbox = thread.mailbox
     lead = thread.lead
     if not mailbox.is_active:
@@ -326,7 +328,7 @@ def reply_to_thread(*, thread: EmailThread, body_text: str) -> LeadEmailMessage:
     thread.last_message_at = now
     thread.save(update_fields=["last_message_at", "updated_at"])
     lead.last_contacted = now.date()
-    lead.next_follow_up = now.date() + timedelta(days=5)
+    lead.next_follow_up = now.date() + timedelta(days=follow_up_days)
     lead.save(update_fields=["last_contacted", "next_follow_up", "updated_at"])
     return message
 

@@ -1,36 +1,69 @@
 <script>
-  import { Mail, Loader2, Reply, Send, ChevronDown, ChevronRight } from '@lucide/svelte';
+  import {
+    CheckCheck,
+    FileEdit,
+    Loader2,
+    Mail,
+    MessageCircle,
+    RefreshCw,
+    Reply,
+    Send
+  } from '@lucide/svelte';
+  import { resolve } from '$app/paths';
   import { toast } from 'svelte-sonner';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Textarea } from '$lib/components/ui/textarea/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
 
-  /** @type {{ lead: any, mailboxes?: any[], templates?: any[] }} */
-  let { lead, mailboxes = [], templates = [] } = $props();
+  /** @type {{ lead: any, mailboxes?: any[], templates?: any[], variant?: 'compact' | 'full', onunreadchange?: (count: number) => void }} */
+  let {
+    lead,
+    mailboxes = [],
+    templates = [],
+    variant = 'compact',
+    onunreadchange = () => {}
+  } = $props();
 
   let threads = $state([]);
   let drafts = $state([]);
   let assignments = $state([]);
   let loading = $state(false);
+  let syncing = $state(false);
   let sending = $state(false);
   let savingDraft = $state(false);
   let composeOpen = $state(false);
-  let expandedThreadId = $state('');
+  let selectedThreadId = $state('');
+  let loadedLeadId = $state('');
+
   let mailboxId = $state('');
+  let selectedTemplateId = $state('');
   let subject = $state('');
   let bodyText = $state('');
   let followUpDays = $state(5);
-  let replyText = $state('');
-  let loadedLeadId = $state('');
-  let selectedTemplateId = $state('');
   let draftId = $state('');
   let assignAsDefault = $state(false);
 
+  let replyText = $state('');
+  let replyTemplateId = $state('');
+  let replyDraftId = $state('');
+  let replyFollowUpDays = $state(5);
+
   const activeMailboxes = $derived(mailboxes.filter((mailbox) => mailbox.is_active));
   const activeTemplates = $derived(templates.filter((template) => template.is_active));
+  const selectedThread = $derived(threads.find((thread) => thread.id === selectedThreadId) || null);
+  const unreadTotal = $derived(
+    threads.reduce((total, thread) => total + Number(thread.unread_count || 0), 0)
+  );
+  const openNewDrafts = $derived(
+    drafts.filter((draft) => draft.status === 'draft' && !draft.thread)
+  );
 
-  function resetComposer() {
+  $effect(() => {
+    onunreadchange(unreadTotal);
+  });
+
+  function resetNewComposer() {
     mailboxId = activeMailboxes[0]?.id || '';
     const defaultAssignment = assignments.find((assignment) => assignment.is_default);
     selectedTemplateId = defaultAssignment?.template?.id || activeTemplates[0]?.id || '';
@@ -41,7 +74,15 @@
     assignAsDefault = Boolean(defaultAssignment);
   }
 
-  async function loadEmailWorkspace() {
+  function loadReplyDraft(threadId) {
+    const existing = drafts.find((draft) => draft.status === 'draft' && draft.thread === threadId);
+    replyDraftId = existing?.id || '';
+    replyTemplateId = existing?.template_id || '';
+    replyText = existing?.body_text || '';
+    replyFollowUpDays = existing?.follow_up_days || 5;
+  }
+
+  async function loadEmailWorkspace({ preserveSelection = true } = {}) {
     if (!lead?.id) return;
     loading = true;
     try {
@@ -63,8 +104,12 @@
       threads = threadData.threads || [];
       drafts = draftData.results || [];
       assignments = assignmentData.results || [];
-      if (threads.length && !expandedThreadId) expandedThreadId = threads[0].id;
-      if (!draftId) resetComposer();
+      const selectionStillExists = threads.some((thread) => thread.id === selectedThreadId);
+      if (!preserveSelection || !selectionStillExists) {
+        selectedThreadId = threads.find((thread) => thread.is_unread)?.id || threads[0]?.id || '';
+      }
+      if (selectedThreadId) loadReplyDraft(selectedThreadId);
+      if (!draftId) resetNewComposer();
     } catch (err) {
       toast.error(err?.message || 'E-mails laden mislukt');
     } finally {
@@ -76,16 +121,59 @@
     if (lead?.id && lead.id !== loadedLeadId) {
       loadedLeadId = lead.id;
       threads = [];
-      expandedThreadId = '';
+      drafts = [];
+      assignments = [];
+      selectedThreadId = '';
       composeOpen = false;
-      resetComposer();
-      loadEmailWorkspace();
+      resetNewComposer();
+      loadEmailWorkspace({ preserveSelection: false });
     }
   });
 
   $effect(() => {
     if (!mailboxId && activeMailboxes.length) mailboxId = activeMailboxes[0].id;
   });
+
+  async function openThread(threadId) {
+    selectedThreadId = threadId;
+    loadReplyDraft(threadId);
+    const thread = threads.find((item) => item.id === threadId);
+    if (thread?.is_unread) await markThreadRead(threadId);
+  }
+
+  async function markThreadRead(threadId) {
+    try {
+      const response = await fetch(`/frontend-api/communications/threads/${threadId}/read`, {
+        method: 'POST'
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Markeren als gelezen mislukt');
+      threads = threads.map((thread) => (thread.id === data.id ? data : thread));
+    } catch (err) {
+      toast.error(err?.message || 'Markeren als gelezen mislukt');
+    }
+  }
+
+  async function syncMailbox() {
+    const syncMailboxId = selectedThread?.mailbox || activeMailboxes[0]?.id;
+    if (!syncMailboxId) return;
+    syncing = true;
+    try {
+      const response = await fetch(`/frontend-api/communications/mailboxes/${syncMailboxId}/sync`, {
+        method: 'POST'
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Synchroniseren mislukt');
+      await loadEmailWorkspace();
+      toast.success(
+        data.ingested ? `${data.ingested} nieuw(e) bericht(en) opgehaald` : 'E-mail is bijgewerkt'
+      );
+    } catch (err) {
+      toast.error(err?.message || 'Synchroniseren mislukt');
+    } finally {
+      syncing = false;
+    }
+  }
 
   function openDraft(draft) {
     draftId = draft.id;
@@ -112,10 +200,10 @@
     );
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Template-toewijzing opslaan mislukt');
-    const existing = assignments.findIndex((assignment) => assignment.id === data.id);
     if (assignAsDefault) {
       assignments = assignments.map((assignment) => ({ ...assignment, is_default: false }));
     }
+    const existing = assignments.findIndex((assignment) => assignment.id === data.id);
     assignments =
       existing >= 0
         ? assignments.map((assignment, index) => (index === existing ? data : assignment))
@@ -203,7 +291,8 @@
       if (!response.ok) throw new Error(data.error || 'E-mail verzenden mislukt');
       toast.success(`E-mail verzonden naar ${lead.email}`);
       composeOpen = false;
-      await loadEmailWorkspace();
+      resetNewComposer();
+      await loadEmailWorkspace({ preserveSelection: false });
     } catch (err) {
       toast.error(err?.message || 'E-mail verzenden mislukt');
     } finally {
@@ -211,19 +300,79 @@
     }
   }
 
-  async function sendReply(threadId) {
-    if (!replyText.trim()) return;
+  async function ensureReplyDraft() {
+    if (!selectedThreadId) throw new Error('Kies eerst een thread');
+    savingDraft = true;
+    try {
+      if (replyDraftId) {
+        const response = await fetch(`/frontend-api/communications/drafts/${replyDraftId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            body_text: replyText.trim(),
+            follow_up_days: Number(replyFollowUpDays)
+          })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Antwoordconcept opslaan mislukt');
+        drafts = drafts.map((draft) => (draft.id === data.id ? data : draft));
+        return data;
+      }
+      const payload = replyTemplateId
+        ? {
+            template_id: replyTemplateId,
+            follow_up_days: Number(replyFollowUpDays)
+          }
+        : {
+            body_text: replyText.trim(),
+            follow_up_days: Number(replyFollowUpDays)
+          };
+      const response = await fetch(
+        `/frontend-api/communications/threads/${selectedThreadId}/drafts`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }
+      );
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Antwoordconcept maken mislukt');
+      replyDraftId = data.id;
+      replyText = data.body_text;
+      drafts = [data, ...drafts.filter((draft) => draft.id !== data.id)];
+      return data;
+    } finally {
+      savingDraft = false;
+    }
+  }
+
+  async function saveReplyDraft() {
+    try {
+      await ensureReplyDraft();
+      toast.success('Antwoordconcept opgeslagen');
+      await loadEmailWorkspace();
+    } catch (err) {
+      toast.error(err?.message || 'Antwoordconcept opslaan mislukt');
+    }
+  }
+
+  async function sendReply() {
+    if (!selectedThreadId) return;
     sending = true;
     try {
-      const response = await fetch(`/frontend-api/communications/threads/${threadId}/reply`, {
+      await ensureReplyDraft();
+      const response = await fetch(`/frontend-api/communications/drafts/${replyDraftId}/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body_text: replyText.trim() })
+        body: JSON.stringify({ idempotency_key: crypto.randomUUID() })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Antwoord verzenden mislukt');
-      replyText = '';
       toast.success('Antwoord verzonden');
+      replyText = '';
+      replyTemplateId = '';
+      replyDraftId = '';
+      await markThreadRead(selectedThreadId);
       await loadEmailWorkspace();
     } catch (err) {
       toast.error(err?.message || 'Antwoord verzenden mislukt');
@@ -235,30 +384,108 @@
   function formatDate(value) {
     return value ? new Date(value).toLocaleString('nl-NL') : '';
   }
+
+  function formatShortDate(value) {
+    if (!value) return '';
+    const date = new Date(value);
+    const today = new Date();
+    return date.toDateString() === today.toDateString()
+      ? date.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
+      : date.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' });
+  }
+
+  function statusLabel(status) {
+    return (
+      {
+        new_reply: 'Nieuw antwoord',
+        reply_received: 'Antwoord ontvangen',
+        waiting_for_reply: 'Wacht op antwoord',
+        draft: 'Concept',
+        empty: 'Leeg'
+      }[status] || status
+    );
+  }
+
+  function statusClass(status) {
+    if (status === 'new_reply')
+      return 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200';
+    if (status === 'reply_received') {
+      return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200';
+    }
+    if (status === 'draft') {
+      return 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200';
+    }
+    return 'bg-[var(--surface-muted)] text-[var(--text-secondary)]';
+  }
+
+  function readableBody(value) {
+    const body = value || '';
+    const markers = [
+      '\nDe informatie opgenomen in dit bericht',
+      '\nThe information contained in this message',
+      '\nOn ',
+      '\nOp '
+    ];
+    let end = body.length;
+    for (const marker of markers) {
+      const index = body.indexOf(marker);
+      if (index > 0) end = Math.min(end, index);
+    }
+    return body.slice(0, Math.min(end, 1600)).trim();
+  }
 </script>
 
-<section class="space-y-3 border-b border-[var(--border-default)] pb-5">
-  <div class="flex items-center justify-between gap-3">
+<section
+  class={variant === 'full'
+    ? 'space-y-4 py-4 pb-8'
+    : 'space-y-3 border-b border-[var(--border-default)] pb-5'}
+>
+  <div class="flex flex-wrap items-center justify-between gap-3">
     <div class="flex items-center gap-2">
       <Mail class="h-4 w-4 text-[var(--text-secondary)]" />
-      <h3 class="text-sm font-semibold text-[var(--text-primary)]">E-mail</h3>
+      <h3 class="text-sm font-semibold text-[var(--text-primary)]">
+        {variant === 'full' ? 'E-mailgesprekken' : 'E-mail'}
+      </h3>
       {#if threads.length}
         <span class="rounded-full bg-[var(--surface-muted)] px-2 py-0.5 text-xs">
           {threads.length}
         </span>
       {/if}
+      {#if unreadTotal}
+        <span class="rounded-full bg-blue-600 px-2 py-0.5 text-xs text-white">
+          {unreadTotal} nieuw
+        </span>
+      {/if}
     </div>
-    <Button
-      type="button"
-      size="sm"
-      variant="outline"
-      onclick={() => (composeOpen = !composeOpen)}
-      disabled={!lead?.email || activeMailboxes.length === 0}
-      class="gap-1.5"
-    >
-      <Send class="h-3.5 w-3.5" />
-      Nieuwe e-mail
-    </Button>
+    <div class="flex gap-2">
+      {#if variant === 'compact' && lead?.id}
+        <Button type="button" size="sm" variant="ghost" href={`/leads/${lead.id}?tab=email`}>
+          Volledige weergave
+        </Button>
+      {/if}
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        onclick={syncMailbox}
+        disabled={syncing || activeMailboxes.length === 0}
+        class="gap-1.5"
+      >
+        <RefreshCw class={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
+        {variant === 'full' ? 'Vernieuwen' : ''}
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        onclick={() => (composeOpen = !composeOpen)}
+        disabled={!lead?.email || activeMailboxes.length === 0}
+        class="gap-1.5"
+      >
+        <Send class="h-3.5 w-3.5" />
+        Nieuwe e-mail
+      </Button>
+    </div>
   </div>
 
   {#if !lead?.email}
@@ -268,12 +495,14 @@
   {:else if activeMailboxes.length === 0}
     <p class="text-xs text-amber-700 dark:text-amber-300">
       Er is nog geen actieve Gmail-mailbox gekoppeld.
-      <a href="/settings/email" class="underline">Open de e-mailinstellingen</a>.
+      <a href={resolve('/settings/email')} class="underline">Open de e-mailinstellingen</a>.
     </p>
   {/if}
 
   {#if composeOpen}
-    <div class="space-y-3 rounded-lg border border-[var(--border-default)] p-3">
+    <div
+      class="space-y-3 rounded-lg border border-[var(--border-default)] bg-[var(--surface-default)] p-4"
+    >
       <div class="space-y-1">
         <Label for="lead-email-template">Template</Label>
         <select
@@ -335,7 +564,7 @@
       </div>
       <div class="space-y-1">
         <Label for="lead-email-body">Bericht</Label>
-        <Textarea id="lead-email-body" bind:value={bodyText} rows="10" />
+        <Textarea id="lead-email-body" bind:value={bodyText} rows="8" />
       </div>
       <div class="flex flex-wrap items-end justify-between gap-3">
         <div class="w-40 space-y-1">
@@ -365,15 +594,15 @@
             class="gap-1.5"
           >
             {#if sending}<Loader2 class="h-3.5 w-3.5 animate-spin" />{/if}
-            Controleren en verzenden
+            Verzenden
           </Button>
         </div>
       </div>
-      {#if drafts.some((draft) => draft.status === 'draft' && draft.id !== draftId)}
+      {#if openNewDrafts.some((draft) => draft.id !== draftId)}
         <div class="border-t border-[var(--border-default)] pt-3">
           <p class="mb-2 text-xs font-medium text-[var(--text-secondary)]">Opgeslagen concepten</p>
           <div class="flex flex-wrap gap-2">
-            {#each drafts.filter((draft) => draft.status === 'draft' && draft.id !== draftId) as draft (draft.id)}
+            {#each openNewDrafts.filter((draft) => draft.id !== draftId) as draft (draft.id)}
               <button
                 type="button"
                 class="rounded-md border border-[var(--border-default)] px-2 py-1 text-left text-xs hover:bg-[var(--surface-muted)]"
@@ -389,82 +618,238 @@
   {/if}
 
   {#if loading}
-    <div class="flex items-center gap-2 py-2 text-xs text-[var(--text-secondary)]">
-      <Loader2 class="h-3.5 w-3.5 animate-spin" />
-      E-mails laden…
+    <div class="flex items-center gap-2 py-6 text-sm text-[var(--text-secondary)]">
+      <Loader2 class="h-4 w-4 animate-spin" />
+      E-mailgesprekken laden…
     </div>
   {:else if threads.length === 0}
-    <p class="py-1 text-xs text-[var(--text-secondary)]">
+    <div
+      class="rounded-lg border border-dashed border-[var(--border-default)] p-8 text-center text-sm text-[var(--text-secondary)]"
+    >
+      <MessageCircle class="mx-auto mb-2 h-8 w-8 text-[var(--text-tertiary)]" />
       Nog geen e-mailgesprekken met deze lead.
-    </p>
+    </div>
   {:else}
-    <div class="space-y-2">
-      {#each threads as thread (thread.id)}
-        <article class="rounded-lg border border-[var(--border-default)]">
-          <button
-            type="button"
-            class="flex w-full items-center justify-between gap-3 p-3 text-left"
-            onclick={() => (expandedThreadId = expandedThreadId === thread.id ? '' : thread.id)}
+    <div
+      class={variant === 'full'
+        ? 'grid min-h-[580px] overflow-hidden rounded-xl border border-[var(--border-default)] bg-[var(--surface-default)] lg:grid-cols-[300px_minmax(0,1fr)]'
+        : 'space-y-3'}
+    >
+      <aside
+        class={variant === 'full'
+          ? 'border-b border-[var(--border-default)] bg-[var(--surface-muted)]/40 lg:border-r lg:border-b-0'
+          : 'space-y-2'}
+      >
+        {#if variant === 'full'}
+          <div
+            class="border-b border-[var(--border-default)] px-4 py-3 text-xs font-semibold text-[var(--text-secondary)]"
           >
-            <span class="min-w-0">
-              <span class="block truncate text-sm font-medium text-[var(--text-primary)]">
-                {thread.subject}
+            Threads
+          </div>
+        {/if}
+        <div class={variant === 'full' ? 'divide-y divide-[var(--border-default)]' : 'space-y-2'}>
+          {#each threads as thread (thread.id)}
+            <button
+              type="button"
+              class={[
+                'relative w-full p-3 text-left transition-colors',
+                variant === 'full' ? 'hover:bg-[var(--surface-default)]' : 'rounded-lg border',
+                selectedThreadId === thread.id
+                  ? 'border-[var(--color-primary-default)] bg-[var(--surface-default)]'
+                  : 'border-[var(--border-default)]',
+                thread.is_unread ? 'font-medium' : ''
+              ]}
+              onclick={() => openThread(thread.id)}
+            >
+              <span class="flex items-start justify-between gap-2">
+                <span class="min-w-0 flex-1">
+                  <span class="flex items-center gap-2">
+                    {#if thread.is_unread}
+                      <span class="h-2 w-2 shrink-0 rounded-full bg-blue-600"></span>
+                    {/if}
+                    <span class="block truncate text-sm text-[var(--text-primary)]">
+                      {thread.subject || '(Geen onderwerp)'}
+                    </span>
+                  </span>
+                  <span class="mt-1 block truncate text-xs text-[var(--text-secondary)]">
+                    {thread.latest_snippet || 'Nog geen berichttekst'}
+                  </span>
+                  <span class="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span
+                      class={`rounded-full px-2 py-0.5 text-[10px] ${statusClass(thread.status)}`}
+                    >
+                      {statusLabel(thread.status)}
+                    </span>
+                    <span class="text-[10px] text-[var(--text-tertiary)]">
+                      {thread.message_count} bericht{thread.message_count === 1 ? '' : 'en'}
+                    </span>
+                  </span>
+                </span>
+                <span class="shrink-0 text-[10px] text-[var(--text-tertiary)]">
+                  {formatShortDate(thread.last_message_at)}
+                </span>
               </span>
-              <span class="block text-xs text-[var(--text-secondary)]">
-                {formatDate(thread.last_message_at)}
-                {#if thread.reply_received_at}
-                  · antwoord ontvangen{/if}
-              </span>
-            </span>
-            {#if expandedThreadId === thread.id}
-              <ChevronDown class="h-4 w-4 shrink-0" />
-            {:else}
-              <ChevronRight class="h-4 w-4 shrink-0" />
-            {/if}
-          </button>
+            </button>
+          {/each}
+        </div>
+      </aside>
 
-          {#if expandedThreadId === thread.id}
-            <div class="space-y-3 border-t border-[var(--border-default)] p-3">
-              {#each thread.messages as message (message.id)}
+      {#if selectedThread}
+        <article class="flex min-w-0 flex-col">
+          <header
+            class="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border-default)] px-4 py-3"
+          >
+            <div class="min-w-0">
+              <h4 class="truncate text-sm font-semibold text-[var(--text-primary)]">
+                {selectedThread.subject || '(Geen onderwerp)'}
+              </h4>
+              <p class="mt-1 text-xs text-[var(--text-secondary)]">
+                {selectedThread.mailbox_email} ↔ {lead.email}
+              </p>
+            </div>
+            <div class="flex items-center gap-2">
+              {#if selectedThread.is_unread}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onclick={() => markThreadRead(selectedThread.id)}
+                  class="gap-1.5"
+                >
+                  <CheckCheck class="h-3.5 w-3.5" />
+                  Markeer gelezen
+                </Button>
+              {/if}
+              <span class={`rounded-full px-2 py-1 text-xs ${statusClass(selectedThread.status)}`}>
+                {statusLabel(selectedThread.status)}
+              </span>
+            </div>
+          </header>
+
+          <div class="flex-1 space-y-4 overflow-y-auto bg-[var(--surface-muted)]/20 p-4">
+            {#each selectedThread.messages as message (message.id)}
+              {@const visibleBody = readableBody(message.body_text)}
+              <div
+                class={`flex ${message.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}
+              >
                 <div
-                  class:ml-5={message.direction === 'outbound'}
-                  class:mr-5={message.direction === 'inbound'}
-                  class="rounded-md bg-[var(--surface-muted)] p-3"
+                  class={[
+                    'max-w-[88%] rounded-xl border p-4 shadow-sm',
+                    message.direction === 'outbound'
+                      ? 'border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950/40'
+                      : 'border-[var(--border-default)] bg-[var(--surface-default)]'
+                  ]}
                 >
                   <div
-                    class="mb-2 flex justify-between gap-2 text-[11px] text-[var(--text-secondary)]"
+                    class="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[11px] text-[var(--text-secondary)]"
                   >
-                    <span>{message.direction === 'outbound' ? 'Verzonden' : 'Ontvangen'}</span>
+                    <span class="font-medium text-[var(--text-primary)]">
+                      {message.direction === 'outbound'
+                        ? selectedThread.mailbox_email
+                        : message.from_address}
+                    </span>
                     <span>{formatDate(message.occurred_at)}</span>
                   </div>
-                  <p class="whitespace-pre-wrap text-sm text-[var(--text-primary)]">
-                    {message.body_text || '(Geen platte tekst beschikbaar)'}
+                  <p class="whitespace-pre-wrap text-sm leading-6 text-[var(--text-primary)]">
+                    {visibleBody || '(Geen platte tekst beschikbaar)'}
                   </p>
-                </div>
-              {/each}
-              <div class="space-y-2">
-                <Textarea bind:value={replyText} rows="4" placeholder="Schrijf een antwoord…" />
-                <div class="flex justify-end">
-                  <Button
-                    type="button"
-                    size="sm"
-                    onclick={() => sendReply(thread.id)}
-                    disabled={sending || !replyText.trim()}
-                    class="gap-1.5"
-                  >
-                    {#if sending}
-                      <Loader2 class="h-3.5 w-3.5 animate-spin" />
-                    {:else}
-                      <Reply class="h-3.5 w-3.5" />
-                    {/if}
-                    Antwoorden
-                  </Button>
+                  {#if (message.body_text || '').trim().length > visibleBody.length}
+                    <details class="mt-3 border-t border-[var(--border-default)] pt-2">
+                      <summary class="cursor-pointer text-xs text-[var(--text-secondary)]">
+                        Volledig bericht bekijken
+                      </summary>
+                      <p
+                        class="mt-2 whitespace-pre-wrap text-xs leading-5 text-[var(--text-secondary)]"
+                      >
+                        {message.body_text}
+                      </p>
+                    </details>
+                  {/if}
                 </div>
               </div>
+            {/each}
+          </div>
+
+          <div class="space-y-3 border-t border-[var(--border-default)] p-4">
+            <div class="flex flex-wrap items-end gap-3">
+              <div class="min-w-[220px] flex-1 space-y-1">
+                <Label for="reply-template-{selectedThread.id}">Antwoordtemplate</Label>
+                <select
+                  id="reply-template-{selectedThread.id}"
+                  bind:value={replyTemplateId}
+                  onchange={() => {
+                    replyDraftId = '';
+                    replyText = '';
+                  }}
+                  class="h-9 w-full rounded-md border border-[var(--border-default)] bg-[var(--surface-default)] px-3 text-sm"
+                >
+                  <option value="">Zonder template</option>
+                  {#each activeTemplates as template (template.id)}
+                    <option value={template.id}>{template.name}</option>
+                  {/each}
+                </select>
+              </div>
+              <div class="w-36 space-y-1">
+                <Label for="reply-follow-up-{selectedThread.id}">Opvolgen na</Label>
+                <Input
+                  id="reply-follow-up-{selectedThread.id}"
+                  type="number"
+                  min="1"
+                  max="30"
+                  bind:value={replyFollowUpDays}
+                />
+              </div>
             </div>
-          {/if}
+            <Textarea
+              bind:value={replyText}
+              rows={variant === 'full' ? 6 : 4}
+              placeholder={replyTemplateId
+                ? 'Pas de template toe om het antwoord te bekijken…'
+                : 'Schrijf een antwoord…'}
+            />
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <span class="text-xs text-[var(--text-tertiary)]">
+                {replyDraftId ? 'Concept opgeslagen' : 'Wordt in dezelfde Gmail-thread verzonden'}
+              </span>
+              <div class="flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onclick={saveReplyDraft}
+                  disabled={savingDraft || (!replyTemplateId && !replyText.trim())}
+                  class="gap-1.5"
+                >
+                  {#if savingDraft}
+                    <Loader2 class="h-3.5 w-3.5 animate-spin" />
+                  {:else}
+                    <FileEdit class="h-3.5 w-3.5" />
+                  {/if}
+                  {replyTemplateId && !replyDraftId ? 'Template toepassen' : 'Concept opslaan'}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onclick={sendReply}
+                  disabled={sending || (!replyTemplateId && !replyText.trim())}
+                  class="gap-1.5"
+                >
+                  {#if sending}
+                    <Loader2 class="h-3.5 w-3.5 animate-spin" />
+                  {:else}
+                    <Reply class="h-3.5 w-3.5" />
+                  {/if}
+                  Antwoorden
+                </Button>
+              </div>
+            </div>
+          </div>
         </article>
-      {/each}
+      {:else}
+        <div class="flex min-h-64 items-center justify-center text-sm text-[var(--text-secondary)]">
+          Kies een thread om het gesprek te bekijken.
+        </div>
+      {/if}
     </div>
   {/if}
 </section>

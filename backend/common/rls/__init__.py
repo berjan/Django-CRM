@@ -63,6 +63,7 @@ ORG_SCOPED_TABLES = [
     "communication_email_template_version",
     "communication_lead_template_assignment",
     "communication_email_draft",
+    "communication_thread_read_state",
     "routing_rule",
     "routing_rule_state",
     # Boards (Kanban)

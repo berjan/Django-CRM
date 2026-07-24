@@ -9,6 +9,7 @@ from communications.models import (
     LeadEmailMessage,
     LeadEmailTemplateAssignment,
     MailboxConnection,
+    ThreadReadState,
 )
 
 
@@ -31,3 +32,4 @@ admin.site.register(EmailTemplate)
 admin.site.register(EmailTemplateVersion)
 admin.site.register(LeadEmailTemplateAssignment)
 admin.site.register(EmailDraft)
+admin.site.register(ThreadReadState)

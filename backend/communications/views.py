@@ -1,7 +1,7 @@
 from django.core import signing
 from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import Count, F, Prefetch, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import serializers, status
@@ -25,6 +25,7 @@ from communications.models import (
     EmailThread,
     LeadEmailTemplateAssignment,
     MailboxConnection,
+    ThreadReadState,
 )
 from communications.render import ALLOWED_VARIABLES, render_email, text_to_html
 from communications.serializers import (
@@ -90,6 +91,29 @@ def _unique_template_name(*, org, scope, owner, requested_name):
         candidate = f"{base[: 255 - len(suffix)]}{suffix}"
         number += 1
     return candidate
+
+
+def _thread_queryset(profile):
+    return (
+        EmailThread.objects.filter(org=profile.org)
+        .select_related("mailbox", "lead")
+        .prefetch_related(
+            "messages",
+            Prefetch(
+                "read_states",
+                queryset=ThreadReadState.objects.filter(profile=profile),
+                to_attr="request_read_states",
+            ),
+        )
+        .annotate(
+            message_count_value=Count("messages", distinct=True),
+            draft_count_value=Count(
+                "drafts",
+                filter=Q(drafts__status=EmailDraft.STATUS_DRAFT),
+                distinct=True,
+            ),
+        )
+    )
 
 
 class MailboxListView(APIView):
@@ -198,12 +222,31 @@ class LeadThreadListView(APIView):
 
     def get(self, request, lead_id):
         get_object_or_404(Lead, pk=lead_id, org=request.profile.org)
-        threads = (
-            EmailThread.objects.filter(org=request.profile.org, lead_id=lead_id)
-            .select_related("mailbox")
-            .prefetch_related("messages")
-        )
+        threads = _thread_queryset(request.profile).filter(lead_id=lead_id)
         return Response({"threads": EmailThreadSerializer(threads, many=True).data})
+
+
+class ThreadDetailView(APIView):
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def get(self, request, pk):
+        thread = get_object_or_404(_thread_queryset(request.profile), pk=pk)
+        return Response(EmailThreadSerializer(thread).data)
+
+
+class ThreadReadView(APIView):
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def post(self, request, pk):
+        thread = get_object_or_404(EmailThread, pk=pk, org=request.profile.org)
+        ThreadReadState.objects.update_or_create(
+            org=request.profile.org,
+            thread=thread,
+            profile=request.profile,
+            defaults={"last_read_at": timezone.now()},
+        )
+        refreshed = get_object_or_404(_thread_queryset(request.profile), pk=pk)
+        return Response(EmailThreadSerializer(refreshed).data)
 
 
 class LeadEmailSendView(APIView):
@@ -243,6 +286,93 @@ class ThreadReplyView(APIView):
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(
             EmailMessageSerializer(message).data, status=status.HTTP_201_CREATED
+        )
+
+
+class ThreadDraftListCreateView(APIView):
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    class InputSerializer(serializers.Serializer):
+        template_id = serializers.UUIDField(required=False, allow_null=True)
+        body_text = serializers.CharField(required=False)
+        follow_up_days = serializers.IntegerField(
+            required=False, default=5, min_value=1, max_value=30
+        )
+
+        def validate(self, attrs):
+            if not attrs.get("template_id") and not attrs.get("body_text"):
+                raise serializers.ValidationError(
+                    "Reply drafts require template_id or body_text"
+                )
+            return attrs
+
+    def get(self, request, pk):
+        thread = get_object_or_404(EmailThread, pk=pk, org=request.profile.org)
+        drafts = EmailDraft.objects.filter(
+            org=request.profile.org,
+            thread=thread,
+            status=EmailDraft.STATUS_DRAFT,
+        ).select_related("mailbox", "template_version")
+        return Response({"results": EmailDraftSerializer(drafts, many=True).data})
+
+    @transaction.atomic
+    def post(self, request, pk):
+        payload = self.InputSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        thread = get_object_or_404(
+            EmailThread.objects.select_related("lead", "mailbox"),
+            pk=pk,
+            org=request.profile.org,
+        )
+        if not thread.lead.email:
+            raise serializers.ValidationError({"lead": "Lead has no email address"})
+        template_version = None
+        source = EmailDraft.SOURCE_MANUAL
+        if payload.validated_data.get("template_id"):
+            template = get_object_or_404(
+                _visible_templates(request.profile),
+                pk=payload.validated_data["template_id"],
+                is_active=True,
+            )
+            template_version = get_object_or_404(
+                EmailTemplateVersion,
+                org=request.profile.org,
+                template=template,
+                version=template.current_version,
+            )
+            rendered = render_email(
+                subject=template_version.subject,
+                body_text=template_version.body_text,
+                lead=thread.lead,
+                organization=request.profile.org,
+                sender=request.profile,
+            )
+            if not rendered.valid:
+                raise serializers.ValidationError(
+                    {
+                        "missing_variables": rendered.missing_variables,
+                        "unknown_variables": rendered.unknown_variables,
+                    }
+                )
+            body_text = rendered.body_text
+            source = EmailDraft.SOURCE_TEMPLATE
+        else:
+            body_text = payload.validated_data["body_text"].strip()
+        draft = EmailDraft.objects.create(
+            org=request.profile.org,
+            lead=thread.lead,
+            thread=thread,
+            mailbox=thread.mailbox,
+            template_version=template_version,
+            recipient=thread.lead.email.strip().lower(),
+            subject=thread.subject,
+            body_text=body_text,
+            body_html=text_to_html(body_text),
+            follow_up_days=payload.validated_data["follow_up_days"],
+            source=source,
+        )
+        return Response(
+            EmailDraftSerializer(draft).data, status=status.HTTP_201_CREATED
         )
 
 
@@ -622,7 +752,11 @@ class EmailDraftSendView(APIView):
             )
         draft = get_object_or_404(
             EmailDraft.objects.select_for_update().select_related(
-                "lead", "mailbox", "template_version__template", "sent_message"
+                "lead",
+                "mailbox",
+                "thread",
+                "template_version__template",
+                "sent_message",
             ),
             pk=pk,
             org=request.profile.org,
@@ -653,13 +787,20 @@ class EmailDraftSendView(APIView):
         draft.idempotency_key = idempotency_key
         draft.save(update_fields=["idempotency_key", "updated_at"])
         try:
-            message = send_lead_email(
-                mailbox=draft.mailbox,
-                lead=draft.lead,
-                subject=draft.subject,
-                body_text=draft.body_text,
-                follow_up_days=draft.follow_up_days,
-            )
+            if draft.thread_id:
+                message = reply_to_thread(
+                    thread=draft.thread,
+                    body_text=draft.body_text,
+                    follow_up_days=draft.follow_up_days,
+                )
+            else:
+                message = send_lead_email(
+                    mailbox=draft.mailbox,
+                    lead=draft.lead,
+                    subject=draft.subject,
+                    body_text=draft.body_text,
+                    follow_up_days=draft.follow_up_days,
+                )
         except ValueError as exc:
             raise serializers.ValidationError({"detail": str(exc)}) from exc
         draft.status = EmailDraft.STATUS_SENT

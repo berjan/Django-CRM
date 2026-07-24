@@ -11,14 +11,22 @@ import { error, fail } from '@sveltejs/kit';
 import { apiRequest } from '$lib/api-helpers.js';
 
 /** @type {import('./$types').PageServerLoad} */
-export async function load({ params, locals, cookies }) {
+export async function load({ params, locals, cookies, url }) {
   const org = locals.org;
   if (!org) {
     throw error(401, 'Organization context required');
   }
 
   try {
-    const response = await apiRequest(`/leads/${params.id}/`, {}, { cookies, org });
+    const [response, mailboxResponse, templateResponse] = await Promise.all([
+      apiRequest(`/leads/${params.id}/`, {}, { cookies, org }),
+      apiRequest('/communications/mailboxes/', {}, { cookies, org }).catch(() => ({
+        mailboxes: []
+      })),
+      apiRequest('/communications/templates/?active=true', {}, { cookies, org }).catch(() => ({
+        results: []
+      }))
+    ]);
 
     if (response?.error) {
       throw error(404, response.errors || 'Lead not found');
@@ -35,7 +43,14 @@ export async function load({ params, locals, cookies }) {
       users: response.users || [],
       commentPermission: response.comment_permission || false,
       customFieldDefinitions: response.custom_field_definitions || [],
-      customFieldValues: lead?.custom_fields || {}
+      customFieldValues: lead?.custom_fields || {},
+      communicationMailboxes: mailboxResponse.mailboxes || [],
+      communicationTemplates: templateResponse.results || [],
+      initialTab: ['overview', 'activity', 'files', 'email'].includes(
+        url.searchParams.get('tab') || ''
+      )
+        ? url.searchParams.get('tab')
+        : 'overview'
     };
   } catch (err) {
     if (/** @type {any} */ (err)?.status) throw err;
