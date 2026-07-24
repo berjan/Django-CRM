@@ -117,6 +117,13 @@ class LeadKanbanView(APIView):
             queryset = queryset.filter(created_at__gte=params.get("created_at__gte"))
         if params.get("created_at__lte"):
             queryset = queryset.filter(created_at__lte=params.get("created_at__lte"))
+        for raw_key, raw_value in params.items():
+            if raw_key.startswith("cf_") and raw_value:
+                cf_key = raw_key[3:]
+                if cf_key:
+                    queryset = queryset.filter(
+                        custom_fields__contains={cf_key: raw_value}
+                    )
         return queryset
 
     def _get_status_kanban(self, queryset):

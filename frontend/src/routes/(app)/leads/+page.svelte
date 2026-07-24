@@ -1141,6 +1141,7 @@
     if (filters.search) count++;
     if (filters.source) count++;
     if (filters.rating) count++;
+    if (filters.zzp_likelihood) count++;
     if (filters.assigned_to?.length > 0) count++;
     if (filters.tags?.length > 0) count++;
     if (filters.created_at_gte || filters.created_at_lte) count++;
@@ -1159,6 +1160,7 @@
       'status',
       'source',
       'rating',
+      'zzp_likelihood',
       'assigned_to',
       'tags',
       'created_at_gte',
@@ -1636,6 +1638,13 @@
         value={filters.rating || 'ALL'}
         onchange={(value) => updateFilters({ ...filters, rating: value })}
         class="w-32"
+      />
+      <SelectFilter
+        label="Freelancer / ZZP"
+        options={filterOptions.zzpLikelihoods}
+        value={filters.zzp_likelihood || 'ALL'}
+        onchange={(value) => updateFilters({ ...filters, zzp_likelihood: value })}
+        class="w-48"
       />
       <DateRangeFilter
         label="Created"

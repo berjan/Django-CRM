@@ -4,6 +4,12 @@ from django.db import connection
 from leads.models import Lead, LeadPipeline, LeadStage
 
 
+pg_only = pytest.mark.skipif(
+    connection.vendor != "postgresql",
+    reason="JSONField contains lookup requires PostgreSQL",
+)
+
+
 def _set_rls(org):
     if connection.vendor != "postgresql":
         return
@@ -474,6 +480,34 @@ class TestLeadKanbanView:
         )
         response = admin_client.get("/api/leads/kanban/", {"rating": "HOT"})
         assert response.status_code == 200
+
+    @pg_only
+    def test_kanban_custom_field_filter(self, admin_client, admin_user, org_a):
+        """Kanban accepts the same cf_<key> filters as the lead list."""
+        _set_rls(org_a)
+        Lead.objects.create(
+            company_name="Likely ZZP",
+            email="likely-zzp@example.com",
+            status="assigned",
+            custom_fields={"partner_zzp_likelihood": "Hoog"},
+            created_by=admin_user,
+            org=org_a,
+        )
+        Lead.objects.create(
+            company_name="Larger Company",
+            email="larger-company@example.com",
+            status="assigned",
+            custom_fields={"partner_zzp_likelihood": "Laag"},
+            created_by=admin_user,
+            org=org_a,
+        )
+
+        response = admin_client.get(
+            "/api/leads/kanban/", {"cf_partner_zzp_likelihood": "Hoog"}
+        )
+
+        assert response.status_code == 200
+        assert response.json()["total_leads"] == 1
 
     def test_kanban_non_admin_sees_assigned_leads(
         self, user_client, admin_user, org_a, user_profile

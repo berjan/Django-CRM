@@ -36,6 +36,7 @@ export async function load({ url, cookies, locals }) {
     status: url.searchParams.get('status') || '',
     source: url.searchParams.get('source') || '',
     rating: url.searchParams.get('rating') || '',
+    zzp_likelihood: url.searchParams.get('zzp_likelihood') || '',
     assigned_to: url.searchParams.getAll('assigned_to'),
     tags: url.searchParams.getAll('tags'),
     created_at_gte: url.searchParams.get('created_at_gte') || '',
@@ -50,6 +51,9 @@ export async function load({ url, cookies, locals }) {
   if (filters.status) queryParams.append('status', filters.status.toLowerCase().replace(/_/g, ' '));
   if (filters.source) queryParams.append('source', filters.source.toLowerCase());
   if (filters.rating) queryParams.append('rating', filters.rating);
+  if (filters.zzp_likelihood) {
+    queryParams.append('cf_partner_zzp_likelihood', filters.zzp_likelihood);
+  }
   filters.assigned_to.forEach((id) => queryParams.append('assigned_to', id));
   filters.tags.forEach((id) => queryParams.append('tags', id));
   if (filters.created_at_gte) queryParams.append('created_at__gte', filters.created_at_gte);
@@ -61,6 +65,9 @@ export async function load({ url, cookies, locals }) {
     if (filters.search) kanbanQueryParams.append('search', filters.search);
     if (filters.source) kanbanQueryParams.append('source', filters.source.toLowerCase());
     if (filters.rating) kanbanQueryParams.append('rating', filters.rating);
+    if (filters.zzp_likelihood) {
+      kanbanQueryParams.append('cf_partner_zzp_likelihood', filters.zzp_likelihood);
+    }
     filters.assigned_to.forEach((id) => kanbanQueryParams.append('assigned_to', id));
     if (filters.created_at_gte) kanbanQueryParams.append('created_at__gte', filters.created_at_gte);
     if (filters.created_at_lte) kanbanQueryParams.append('created_at__lte', filters.created_at_lte);
@@ -225,6 +232,12 @@ export async function load({ url, cookies, locals }) {
           { value: 'HOT', label: 'Hot' },
           { value: 'WARM', label: 'Warm' },
           { value: 'COLD', label: 'Cold' }
+        ],
+        zzpLikelihoods: [
+          { value: 'Hoog', label: 'Waarschijnlijk' },
+          { value: 'Middel', label: 'Mogelijk' },
+          { value: 'Laag', label: 'Onwaarschijnlijk' },
+          { value: 'Onbekend', label: 'Onbekend' }
         ]
       },
       // Pre-loaded form options for drawer (avoids client-side auth issues)
