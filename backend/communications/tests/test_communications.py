@@ -5,9 +5,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from django.test import override_settings
+from googleapiclient.errors import HttpError
 
 from communications.crypto import decrypt_credentials, encrypt_credentials
-from communications.gmail import reply_to_thread, send_lead_email
+from communications.gmail import reply_to_thread, send_lead_email, sync_mailbox
 from communications.models import (
     EmailDraft,
     EmailSuppression,
@@ -311,3 +312,31 @@ def test_safe_renderer_escapes_html(org_a, lead, admin_profile):
 
     assert result.subject == "Hallo <Jan>"
     assert result.body_html == "<p>Beste &lt;Jan&gt;</p>"
+
+
+@pytest.mark.django_db
+@override_settings(GMAIL_TOKEN_ENCRYPTION_KEY="test-encryption-key")
+def test_sync_skips_history_messages_that_gmail_deleted(mailbox):
+    service = MagicMock()
+    service.users.return_value.history.return_value.list.return_value.execute.return_value = {
+        "historyId": "200",
+        "history": [
+            {
+                "messagesAdded": [
+                    {"message": {"id": "deleted-gmail-message"}},
+                ]
+            }
+        ],
+    }
+    response = MagicMock(status=404, reason="Not Found")
+    service.users.return_value.messages.return_value.get.return_value.execute.side_effect = HttpError(
+        response, b'{"error": {"message": "Not found"}}'
+    )
+
+    with patch("communications.gmail._service", return_value=service):
+        ingested = sync_mailbox(mailbox)
+
+    mailbox.refresh_from_db()
+    assert ingested == 0
+    assert mailbox.provider_history_id == "200"
+    assert mailbox.last_error == ""

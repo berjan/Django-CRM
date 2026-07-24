@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 from email.message import EmailMessage as MimeEmailMessage
@@ -27,6 +28,7 @@ GMAIL_SCOPES = [
     "https://www.googleapis.com/auth/gmail.send",
 ]
 STATE_SALT = "communications.gmail.oauth"
+logger = logging.getLogger(__name__)
 
 
 def _oauth_config() -> dict:
@@ -338,12 +340,24 @@ def _ingest_gmail_message(
         return False
 
     service = service or _service(mailbox)
-    payload = (
-        service.users()
-        .messages()
-        .get(userId="me", id=message_id, format="raw")
-        .execute()
-    )
+    try:
+        payload = (
+            service.users()
+            .messages()
+            .get(userId="me", id=message_id, format="raw")
+            .execute()
+        )
+    except HttpError as exc:
+        status_code = getattr(exc, "status_code", None) or getattr(
+            getattr(exc, "resp", None), "status", None
+        )
+        if status_code != 404:
+            raise
+        logger.info(
+            "Skipping Gmail history message %s because it no longer exists",
+            message_id,
+        )
+        return False
     thread = (
         EmailThread.objects.filter(
             mailbox=mailbox, provider_thread_id=payload["threadId"]
