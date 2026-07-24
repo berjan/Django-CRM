@@ -1676,7 +1676,7 @@
           data={kanbanData}
           loading={!kanbanData}
           onStatusChange={handleKanbanStatusChange}
-          onCardClick={(lead) => openLead(lead, true)}
+          onCardClick={(lead) => goto(`/leads/${lead.id}`)}
         />
       </div>
     {:else}

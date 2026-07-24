@@ -189,7 +189,7 @@
 
   const recordsItems = [
     {
-      href: '/leads',
+      href: '/leads?viewMode=kanban&page=1',
       label: 'Leads',
       icon: Target,
       type: 'link',
