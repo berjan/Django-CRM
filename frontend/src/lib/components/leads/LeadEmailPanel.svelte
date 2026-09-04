@@ -502,22 +502,6 @@
     }
     return 'bg-[var(--surface-muted)] text-[var(--text-secondary)]';
   }
-
-  function readableBody(value) {
-    const body = value || '';
-    const markers = [
-      '\nDe informatie opgenomen in dit bericht',
-      '\nThe information contained in this message',
-      '\nOn ',
-      '\nOp '
-    ];
-    let end = body.length;
-    for (const marker of markers) {
-      const index = body.indexOf(marker);
-      if (index > 0) end = Math.min(end, index);
-    }
-    return body.slice(0, Math.min(end, 1600)).trim();
-  }
 </script>
 
 <section
@@ -930,7 +914,7 @@
 
           <div class="flex-1 space-y-4 overflow-y-auto bg-[var(--surface-muted)]/20 p-4">
             {#each selectedThread.messages as message (message.id)}
-              {@const visibleBody = readableBody(message.body_text)}
+              {@const visibleBody = message.body_preview || message.body_text || ''}
               <div
                 class={`flex ${message.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}
               >

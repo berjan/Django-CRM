@@ -99,6 +99,30 @@ class TestParser:
         parsed = parse_raw_email(_raw_email(message_id="<has-angles@x>"))
         assert parsed.message_id == "has-angles@x"
 
+    def test_derives_plain_text_from_html_only_message(self):
+        raw = (
+            "From: Customer <user@example.com>\r\n"
+            "To: support@acme.com\r\n"
+            "Subject: HTML reply\r\n"
+            "Date: Sat, 9 May 2026 12:00:00 +0000\r\n"
+            "Message-ID: <html@example.com>\r\n"
+            "MIME-Version: 1.0\r\n"
+            'Content-Type: text/html; charset="utf-8"\r\n'
+            "\r\n"
+            "<html><head><style>.hidden { color: red; }</style></head>"
+            "<body><p>Goedemiddag,<br>Wat leuk om te horen.</p>"
+            "<div>Wat stelt u voor?</div>"
+            "<script>alert('not text')</script></body></html>"
+        )
+
+        parsed = parse_raw_email(raw)
+
+        assert parsed.body_text == (
+            "Goedemiddag,\nWat leuk om te horen.\nWat stelt u voor?"
+        )
+        assert "<p>Goedemiddag" in parsed.body_html
+        assert "alert" not in parsed.body_text
+
     def test_bounce_detection(self):
         # multipart/report with delivery-status report-type → bounce
         bounce = (

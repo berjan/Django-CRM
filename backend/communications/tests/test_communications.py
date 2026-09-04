@@ -499,6 +499,53 @@ def test_thread_read_state_is_personal(admin_client, user_client, org_a, mailbox
 
 
 @pytest.mark.django_db
+def test_thread_api_uses_html_for_missing_plain_text(
+    admin_client, org_a, mailbox, lead
+):
+    thread = EmailThread.objects.create(
+        org=org_a,
+        mailbox=mailbox,
+        lead=lead,
+        provider_thread_id="gmail-html-only-thread",
+        subject="HTML-only antwoord",
+        last_message_at=timezone.now(),
+        reply_received_at=timezone.now(),
+    )
+    LeadEmailMessage.objects.create(
+        org=org_a,
+        thread=thread,
+        mailbox=mailbox,
+        provider_message_id="gmail-html-only-message",
+        direction=LeadEmailMessage.DIRECTION_INBOUND,
+        from_address=lead.email,
+        to_addresses=[mailbox.email_address],
+        subject=thread.subject,
+        body_text="",
+        body_html=(
+            "<p>Goedemiddag.</p><p>Wat leuk om te horen.</p>"
+            "<div>Wat stelt u voor?</div><div>Op 4 sep 2026 schreef Bruens:</div>"
+            "<blockquote>Het oorspronkelijke bericht.</blockquote>"
+        ),
+        occurred_at=timezone.now(),
+    )
+
+    response = admin_client.get(f"/api/communications/leads/{lead.id}/threads/")
+
+    assert response.status_code == 200
+    payload = response.json()["threads"][0]
+    assert payload["messages"][0]["body_text"] == (
+        "Goedemiddag.\nWat leuk om te horen.\nWat stelt u voor?\n"
+        "Op 4 sep 2026 schreef Bruens:\nHet oorspronkelijke bericht."
+    )
+    assert payload["messages"][0]["body_preview"] == (
+        "Goedemiddag.\nWat leuk om te horen.\nWat stelt u voor?"
+    )
+    assert payload["latest_snippet"] == (
+        "Goedemiddag. Wat leuk om te horen. Wat stelt u voor?"
+    )
+
+
+@pytest.mark.django_db
 @override_settings(GMAIL_TOKEN_ENCRYPTION_KEY="test-encryption-key")
 def test_reply_draft_sends_in_existing_thread_with_nullable_relations(
     admin_client, mailbox, lead

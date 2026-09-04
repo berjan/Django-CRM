@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from email.message import EmailMessage as StdlibEmailMessage
 from typing import Iterable
 
+from common.email_body import plain_text_email_body
+
 logger = logging.getLogger(__name__)
 
 
@@ -127,7 +129,7 @@ def _extract_bodies(msg: StdlibEmailMessage) -> tuple[str, str]:
                 html_body = content
             else:
                 text_body = content
-    return text_body, html_body
+    return plain_text_email_body(text_body, html_body), html_body
 
 
 def _extract_attachments(msg: StdlibEmailMessage) -> list[ParsedAttachment]:

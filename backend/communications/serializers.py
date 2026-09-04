@@ -2,6 +2,7 @@ import re
 
 from rest_framework import serializers
 
+from common.email_body import email_body_preview, plain_text_email_body
 from communications.models import (
     EmailDraft,
     EmailSignature,
@@ -96,6 +97,9 @@ class MailboxConnectionSerializer(serializers.ModelSerializer):
 
 
 class EmailMessageSerializer(serializers.ModelSerializer):
+    body_text = serializers.SerializerMethodField()
+    body_preview = serializers.SerializerMethodField()
+
     class Meta:
         model = LeadEmailMessage
         fields = (
@@ -106,11 +110,18 @@ class EmailMessageSerializer(serializers.ModelSerializer):
             "cc_addresses",
             "subject",
             "body_text",
+            "body_preview",
             "body_html",
             "occurred_at",
             "provider_labels",
         )
         read_only_fields = fields
+
+    def get_body_text(self, obj):
+        return plain_text_email_body(obj.body_text, obj.body_html)
+
+    def get_body_preview(self, obj):
+        return email_body_preview(obj.body_text, obj.body_html)
 
 
 class EmailThreadSerializer(serializers.ModelSerializer):
@@ -168,7 +179,12 @@ class EmailThreadSerializer(serializers.ModelSerializer):
         messages = self._messages(obj)
         if not messages:
             return ""
-        return " ".join((messages[-1].body_text or "").split())[:180]
+        body = email_body_preview(
+            messages[-1].body_text,
+            messages[-1].body_html,
+            limit=180,
+        )
+        return " ".join(body.split())[:180]
 
     def get_last_direction(self, obj):
         messages = self._messages(obj)
