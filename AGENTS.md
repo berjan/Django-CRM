@@ -74,3 +74,11 @@ Add or update focused tests beside the relevant feature: Django tests use `test_
 ## Commit & Pull Request Guidelines
 
 Use concise Conventional Commit-style subjects reflected in history: `feat: add export`, `fix: prevent duplicate leads`, or `refactor: simplify auth flow`. Keep commits narrowly scoped. PRs should explain user-visible and architectural changes, link the relevant issue, list tests run, include screenshots for UI changes, and call out migrations, configuration, or RLS/security implications.
+
+## Git Workflow
+
+Work directly on the `main` branch by default. Do not create feature branches,
+worktrees, or pull requests unless the user explicitly asks for them. Before
+starting work, switch to `main` and incorporate the latest remote changes when
+it is safe to do so. Keep commits narrowly scoped even when working directly on
+`main`.
