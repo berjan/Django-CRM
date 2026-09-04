@@ -19,3 +19,18 @@ export async function PATCH({ params, request, cookies, locals }) {
     return json({ error: err?.message || 'Concept opslaan mislukt' }, { status: 400 });
   }
 }
+
+/** @type {import('./$types').RequestHandler} */
+export async function DELETE({ params, cookies, locals }) {
+  if (!UUID_RE.test(params.id)) return json({ error: 'Invalid draft id' }, { status: 400 });
+  try {
+    await apiRequest(
+      `/communications/drafts/${params.id}/`,
+      { method: 'DELETE' },
+      { cookies, org: locals.org }
+    );
+    return new Response(null, { status: 204 });
+  } catch (err) {
+    return json({ error: err?.message || 'Concept verwijderen mislukt' }, { status: 400 });
+  }
+}

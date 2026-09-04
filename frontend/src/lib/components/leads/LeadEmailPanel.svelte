@@ -7,7 +7,9 @@
     MessageCircle,
     RefreshCw,
     Reply,
-    Send
+    Send,
+    Trash2,
+    X
   } from '@lucide/svelte';
   import { resolve } from '$app/paths';
   import { toast } from 'svelte-sonner';
@@ -16,13 +18,14 @@
   import { Textarea } from '$lib/components/ui/textarea/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
 
-  /** @type {{ lead: any, mailboxes?: any[], templates?: any[], variant?: 'compact' | 'full', onunreadchange?: (count: number) => void }} */
+  /** @type {{ lead: any, mailboxes?: any[], templates?: any[], variant?: 'compact' | 'full', onunreadchange?: (count: number) => void, ondraftchange?: (count: number) => void }} */
   let {
     lead,
     mailboxes = [],
     templates = [],
     variant = 'compact',
-    onunreadchange = () => {}
+    onunreadchange = () => {},
+    ondraftchange = () => {}
   } = $props();
 
   let threads = $state([]);
@@ -32,6 +35,7 @@
   let syncing = $state(false);
   let sending = $state(false);
   let savingDraft = $state(false);
+  let deletingDraftId = $state('');
   let composeOpen = $state(false);
   let selectedThreadId = $state('');
   let loadedLeadId = $state('');
@@ -43,6 +47,9 @@
   let followUpDays = $state(5);
   let draftId = $state('');
   let assignAsDefault = $state(false);
+  let savedSubject = $state('');
+  let savedBodyText = $state('');
+  let savedFollowUpDays = $state(5);
 
   let replyText = $state('');
   let replyTemplateId = $state('');
@@ -58,9 +65,22 @@
   const openNewDrafts = $derived(
     drafts.filter((draft) => draft.status === 'draft' && !draft.thread)
   );
+  const currentDraft = $derived(openNewDrafts.find((draft) => draft.id === draftId) || null);
+  const hasUnsavedChanges = $derived(
+    composeOpen &&
+      (draftId
+        ? subject !== savedSubject ||
+          bodyText !== savedBodyText ||
+          Number(followUpDays) !== Number(savedFollowUpDays)
+        : Boolean(subject.trim() || bodyText.trim()))
+  );
 
   $effect(() => {
     onunreadchange(unreadTotal);
+  });
+
+  $effect(() => {
+    ondraftchange(openNewDrafts.length);
   });
 
   function resetNewComposer() {
@@ -72,6 +92,34 @@
     followUpDays = 5;
     draftId = '';
     assignAsDefault = Boolean(defaultAssignment);
+    savedSubject = '';
+    savedBodyText = '';
+    savedFollowUpDays = 5;
+  }
+
+  function rememberSavedDraft(draft) {
+    savedSubject = draft.subject || '';
+    savedBodyText = draft.body_text || '';
+    savedFollowUpDays = Number(draft.follow_up_days || 5);
+  }
+
+  function confirmDiscardChanges() {
+    return (
+      !hasUnsavedChanges ||
+      window.confirm('Je hebt niet-opgeslagen wijzigingen. Wil je deze wijzigingen verwijderen?')
+    );
+  }
+
+  function startNewEmail() {
+    if (!confirmDiscardChanges()) return;
+    resetNewComposer();
+    composeOpen = true;
+  }
+
+  function closeComposer() {
+    if (!confirmDiscardChanges()) return;
+    composeOpen = false;
+    resetNewComposer();
   }
 
   function loadReplyDraft(threadId) {
@@ -110,6 +158,10 @@
       }
       if (selectedThreadId) loadReplyDraft(selectedThreadId);
       if (!draftId) resetNewComposer();
+      const newDrafts = drafts.filter((draft) => draft.status === 'draft' && !draft.thread);
+      if (variant === 'full' && threads.length === 0 && newDrafts.length === 1 && !composeOpen) {
+        openDraft(newDrafts[0], { force: true });
+      }
     } catch (err) {
       toast.error(err?.message || 'E-mails laden mislukt');
     } finally {
@@ -175,14 +227,43 @@
     }
   }
 
-  function openDraft(draft) {
+  function openDraft(draft, { force = false } = {}) {
+    if (draft.id === draftId && composeOpen) return;
+    if (!force && draft.id !== draftId && !confirmDiscardChanges()) return;
     draftId = draft.id;
     mailboxId = draft.mailbox;
     selectedTemplateId = draft.template_id || '';
     subject = draft.subject;
     bodyText = draft.body_text;
     followUpDays = draft.follow_up_days;
+    rememberSavedDraft(draft);
     composeOpen = true;
+  }
+
+  async function deleteDraft(draft) {
+    if (
+      !window.confirm(`Concept “${draft.subject || '(Geen onderwerp)'}” definitief verwijderen?`)
+    ) {
+      return;
+    }
+    deletingDraftId = draft.id;
+    try {
+      const response = await fetch(`/frontend-api/communications/drafts/${draft.id}`, {
+        method: 'DELETE'
+      });
+      const data = response.status === 204 ? null : await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || 'Concept verwijderen mislukt');
+      drafts = drafts.filter((item) => item.id !== draft.id);
+      if (draft.id === draftId) {
+        composeOpen = false;
+        resetNewComposer();
+      }
+      toast.success('Concept verwijderd');
+    } catch (err) {
+      toast.error(err?.message || 'Concept verwijderen mislukt');
+    } finally {
+      deletingDraftId = '';
+    }
   }
 
   async function saveTemplateAssignment() {
@@ -238,6 +319,7 @@
       bodyText = data.body_text;
       followUpDays = data.follow_up_days;
       drafts = [data, ...drafts.filter((draft) => draft.id !== data.id)];
+      rememberSavedDraft(data);
       if (selectedTemplateId) await saveTemplateAssignment();
       return data;
     } finally {
@@ -261,6 +343,7 @@
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Concept opslaan mislukt');
       drafts = drafts.map((draft) => (draft.id === data.id ? data : draft));
+      rememberSavedDraft(data);
       return data;
     } finally {
       savingDraft = false;
@@ -443,12 +526,17 @@
   <div class="flex flex-wrap items-center justify-between gap-3">
     <div class="flex items-center gap-2">
       <Mail class="h-4 w-4 text-[var(--text-secondary)]" />
-      <h3 class="text-sm font-semibold text-[var(--text-primary)]">
-        {variant === 'full' ? 'E-mailgesprekken' : 'E-mail'}
-      </h3>
+      <h3 class="text-sm font-semibold text-[var(--text-primary)]">E-mail</h3>
       {#if threads.length}
         <span class="rounded-full bg-[var(--surface-muted)] px-2 py-0.5 text-xs">
-          {threads.length}
+          {threads.length} gesprek{threads.length === 1 ? '' : 'ken'}
+        </span>
+      {/if}
+      {#if openNewDrafts.length}
+        <span
+          class="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200"
+        >
+          {openNewDrafts.length} concept{openNewDrafts.length === 1 ? '' : 'en'}
         </span>
       {/if}
       {#if unreadTotal}
@@ -478,7 +566,7 @@
         type="button"
         size="sm"
         variant="outline"
-        onclick={() => (composeOpen = !composeOpen)}
+        onclick={startNewEmail}
         disabled={!lead?.email || activeMailboxes.length === 0}
         class="gap-1.5"
       >
@@ -499,10 +587,116 @@
     </p>
   {/if}
 
+  {#if openNewDrafts.length}
+    <section
+      class="overflow-hidden rounded-xl border border-amber-200 bg-amber-50/40 dark:border-amber-900 dark:bg-amber-950/10"
+      aria-labelledby="lead-email-drafts-heading"
+    >
+      <div
+        class="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200 px-4 py-3 dark:border-amber-900"
+      >
+        <div class="flex items-center gap-2">
+          <FileEdit class="h-4 w-4 text-amber-700 dark:text-amber-300" />
+          <h4
+            id="lead-email-drafts-heading"
+            class="text-sm font-semibold text-[var(--text-primary)]"
+          >
+            Concepten
+          </h4>
+          <span class="text-xs text-[var(--text-secondary)]"> Nog niet verzonden </span>
+        </div>
+      </div>
+      <div class="divide-y divide-amber-200 dark:divide-amber-900">
+        {#each openNewDrafts as draft (draft.id)}
+          <div
+            class={[
+              'flex flex-wrap items-center gap-3 px-4 py-3 transition-colors',
+              draft.id === draftId
+                ? 'bg-amber-100/70 dark:bg-amber-950/30'
+                : 'hover:bg-amber-100/40 dark:hover:bg-amber-950/20'
+            ]}
+          >
+            <button
+              type="button"
+              class="min-w-[220px] flex-1 text-left"
+              onclick={() => openDraft(draft)}
+              aria-current={draft.id === draftId ? 'true' : undefined}
+            >
+              <span class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span class="truncate text-sm font-medium text-[var(--text-primary)]">
+                  {draft.subject || '(Geen onderwerp)'}
+                </span>
+                <span
+                  class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-200"
+                >
+                  Concept
+                </span>
+              </span>
+              <span class="mt-1 block text-xs text-[var(--text-secondary)]">
+                Aan {draft.recipient}
+                <span aria-hidden="true"> · </span>
+                Gewijzigd {formatDate(draft.updated_at)}
+              </span>
+            </button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onclick={() => openDraft(draft)}
+              disabled={deletingDraftId === draft.id}
+            >
+              Verder schrijven
+            </Button>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              onclick={() => deleteDraft(draft)}
+              disabled={deletingDraftId === draft.id}
+              aria-label="Concept verwijderen"
+              class="text-[var(--text-secondary)] hover:text-red-700"
+            >
+              {#if deletingDraftId === draft.id}
+                <Loader2 class="h-4 w-4 animate-spin" />
+              {:else}
+                <Trash2 class="h-4 w-4" />
+              {/if}
+            </Button>
+          </div>
+        {/each}
+      </div>
+    </section>
+  {/if}
+
   {#if composeOpen}
     <div
       class="space-y-3 rounded-lg border border-[var(--border-default)] bg-[var(--surface-default)] p-4"
     >
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h4 class="text-sm font-semibold text-[var(--text-primary)]">
+            {draftId ? 'Concept bewerken' : 'Nieuwe e-mail'}
+          </h4>
+          <p class="mt-1 text-xs text-[var(--text-secondary)]">
+            {#if draftId && hasUnsavedChanges}
+              Niet-opgeslagen wijzigingen
+            {:else if currentDraft}
+              Opgeslagen {formatDate(currentDraft.updated_at)}
+            {:else}
+              De e-mail wordt pas verstuurd wanneer je op Verzenden klikt.
+            {/if}
+          </p>
+        </div>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          onclick={closeComposer}
+          aria-label="E-maileditor sluiten"
+        >
+          <X class="h-4 w-4" />
+        </Button>
+      </div>
       <div class="space-y-1">
         <Label for="lead-email-template">Template</Label>
         <select
@@ -598,38 +792,34 @@
           </Button>
         </div>
       </div>
-      {#if openNewDrafts.some((draft) => draft.id !== draftId)}
-        <div class="border-t border-[var(--border-default)] pt-3">
-          <p class="mb-2 text-xs font-medium text-[var(--text-secondary)]">Opgeslagen concepten</p>
-          <div class="flex flex-wrap gap-2">
-            {#each openNewDrafts.filter((draft) => draft.id !== draftId) as draft (draft.id)}
-              <button
-                type="button"
-                class="rounded-md border border-[var(--border-default)] px-2 py-1 text-left text-xs hover:bg-[var(--surface-muted)]"
-                onclick={() => openDraft(draft)}
-              >
-                {draft.subject}
-              </button>
-            {/each}
-          </div>
-        </div>
-      {/if}
     </div>
   {/if}
 
   {#if loading}
     <div class="flex items-center gap-2 py-6 text-sm text-[var(--text-secondary)]">
       <Loader2 class="h-4 w-4 animate-spin" />
-      E-mailgesprekken laden…
+      E-mail laden…
     </div>
-  {:else if threads.length === 0}
+  {:else if threads.length === 0 && openNewDrafts.length === 0 && !composeOpen}
     <div
       class="rounded-lg border border-dashed border-[var(--border-default)] p-8 text-center text-sm text-[var(--text-secondary)]"
     >
       <MessageCircle class="mx-auto mb-2 h-8 w-8 text-[var(--text-tertiary)]" />
-      Nog geen e-mailgesprekken met deze lead.
+      <p class="font-medium text-[var(--text-primary)]">Nog geen e-mail met deze lead</p>
+      <p class="mt-1">Maak een eerste e-mail of sla een concept op om hier te beginnen.</p>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        onclick={startNewEmail}
+        disabled={!lead?.email || activeMailboxes.length === 0}
+        class="mt-4 gap-1.5"
+      >
+        <Send class="h-3.5 w-3.5" />
+        Nieuwe e-mail
+      </Button>
     </div>
-  {:else}
+  {:else if threads.length}
     <div
       class={variant === 'full'
         ? 'grid min-h-[580px] overflow-hidden rounded-xl border border-[var(--border-default)] bg-[var(--surface-default)] lg:grid-cols-[300px_minmax(0,1fr)]'

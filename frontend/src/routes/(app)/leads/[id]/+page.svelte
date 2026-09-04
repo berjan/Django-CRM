@@ -59,6 +59,7 @@
   // svelte-ignore state_referenced_locally
   let tab = $state(data.initialTab || 'overview');
   let emailUnreadCount = $state(0);
+  let emailDraftCount = $state(0);
 
   // Normalize backend status ("in process", "assigned") to leadStatusOptions value format ("IN_PROCESS")
   const normalizedStatus = $derived(
@@ -258,8 +259,17 @@
       {#if emailUnreadCount}
         <span
           class="ml-1.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] text-white tabular-nums"
+          title="{emailUnreadCount} ongelezen"
         >
           {emailUnreadCount}
+        </span>
+      {/if}
+      {#if emailDraftCount}
+        <span
+          class="ml-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-amber-100 px-1 text-[10px] text-amber-800 tabular-nums dark:bg-amber-950 dark:text-amber-200"
+          title="{emailDraftCount} concept{emailDraftCount === 1 ? '' : 'en'}"
+        >
+          {emailDraftCount}
         </span>
       {/if}
     </Tabs.Trigger>
@@ -720,6 +730,7 @@
       templates={data.communicationTemplates || []}
       variant="full"
       onunreadchange={(count) => (emailUnreadCount = count)}
+      ondraftchange={(count) => (emailDraftCount = count)}
     />
   </Tabs.Content>
 </Tabs.Root>
