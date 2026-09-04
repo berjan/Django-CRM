@@ -1,5 +1,5 @@
 <script>
-  import { Building2, AlertCircle } from '@lucide/svelte';
+  import { AlertCircle, Building2, Mail, MessageSquare, Send } from '@lucide/svelte';
 
   /**
    * @typedef {Object} Lead
@@ -18,6 +18,12 @@
    * @property {string} [nextFollowUp]
    * @property {boolean} [is_follow_up_overdue]
    * @property {boolean} [isFollowUpOverdue]
+   * @property {'none'|'draft'|'sent'|'replied'|'follow_up'} [email_status]
+   * @property {'none'|'draft'|'sent'|'replied'|'follow_up'} [emailStatus]
+   * @property {number} [email_draft_count]
+   * @property {number} [emailDraftCount]
+   * @property {string|null} [last_email_at]
+   * @property {string|null} [lastEmailAt]
    * @property {Array<{id: string, user_details?: {email?: string}, email?: string}>} [assigned_to]
    * @property {Array<{id: string, user_details?: {email?: string}, email?: string}>} [assignedTo]
    */
@@ -38,9 +44,41 @@
   const amount = $derived(item.opportunity_amount || item.opportunityAmount);
   const currency = $derived(item.currency || 'AED');
   const isOverdue = $derived(item.is_follow_up_overdue || item.isFollowUpOverdue);
+  const emailStatus = $derived(item.email_status || item.emailStatus || 'none');
+  const emailDraftCount = $derived(item.email_draft_count || item.emailDraftCount || 0);
+  const lastEmailAt = $derived(item.last_email_at || item.lastEmailAt || null);
   const rating = $derived(item.rating);
   const assignees = $derived(item.assigned_to || item.assignedTo || []);
   const labelBg = $derived(rating ? ratingLabelBg[rating] : null);
+  const showGenericOverdue = $derived(isOverdue && emailStatus !== 'follow_up');
+
+  /** @param {string|null} value */
+  function formatEmailDate(value) {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return new Intl.DateTimeFormat('nl-NL', {
+      day: 'numeric',
+      month: 'short'
+    })
+      .format(date)
+      .replace('.', '');
+  }
+
+  const emailDate = $derived(formatEmailDate(lastEmailAt));
+  const emailStatusLabel = $derived.by(() => {
+    if (emailStatus === 'draft') {
+      return emailDraftCount > 1 ? `${emailDraftCount} concepten` : 'Concept';
+    }
+    if (emailStatus === 'sent') {
+      return emailDate ? `Verzonden · ${emailDate}` : 'Verzonden';
+    }
+    if (emailStatus === 'replied') {
+      return emailDate ? `Reactie · ${emailDate}` : 'Reactie ontvangen';
+    }
+    if (emailStatus === 'follow_up') return 'Follow-up nodig';
+    return '';
+  });
 
   /**
    * @param {number|string} value
@@ -124,9 +162,40 @@
   {/if}
 
   <!-- Footer: amount / overdue + assignees -->
-  {#if amount || isOverdue || assignees.length > 0}
+  {#if amount || showGenericOverdue || emailStatus !== 'none' || assignees.length > 0}
     <div class="mt-2 flex items-center justify-between gap-2">
-      <div class="flex items-center gap-1.5">
+      <div class="flex min-w-0 flex-wrap items-center gap-1.5">
+        {#if emailStatus !== 'none'}
+          <span
+            data-email-status={emailStatus}
+            class="inline-flex min-w-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium
+              {emailStatus === 'draft'
+              ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
+              : emailStatus === 'sent'
+                ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300'
+                : emailStatus === 'replied'
+                  ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
+                  : 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300'}"
+            title={emailStatus === 'draft'
+              ? `${emailDraftCount} e-mailconcept${emailDraftCount === 1 ? '' : 'en'} klaar`
+              : emailStatus === 'sent'
+                ? `E-mail verzonden${emailDate ? ` op ${emailDate}` : ''}`
+                : emailStatus === 'replied'
+                  ? `Reactie ontvangen${emailDate ? ` op ${emailDate}` : ''}`
+                  : `Opvolging nodig${emailDate ? ` na e-mail van ${emailDate}` : ''}`}
+          >
+            {#if emailStatus === 'draft'}
+              <Mail class="h-3 w-3 shrink-0" />
+            {:else if emailStatus === 'sent'}
+              <Send class="h-3 w-3 shrink-0" />
+            {:else if emailStatus === 'replied'}
+              <MessageSquare class="h-3 w-3 shrink-0" />
+            {:else}
+              <AlertCircle class="h-3 w-3 shrink-0" />
+            {/if}
+            <span class="truncate">{emailStatusLabel}</span>
+          </span>
+        {/if}
         {#if amount}
           <span
             class="rounded px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300"
@@ -134,7 +203,7 @@
             {formatAmount(amount, currency)}
           </span>
         {/if}
-        {#if isOverdue}
+        {#if showGenericOverdue}
           <span
             class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-rose-700 dark:text-rose-300"
             title="Follow-up overdue"

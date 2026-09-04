@@ -302,6 +302,9 @@ class LeadKanbanCardSerializer(serializers.ModelSerializer):
 
     assigned_to = ProfileSerializer(read_only=True, many=True)
     full_name = serializers.SerializerMethodField()
+    email_status = serializers.SerializerMethodField()
+    email_draft_count = serializers.SerializerMethodField()
+    last_email_at = serializers.SerializerMethodField()
 
     class Meta:
         model = Lead
@@ -319,12 +322,31 @@ class LeadKanbanCardSerializer(serializers.ModelSerializer):
             "kanban_order",
             "next_follow_up",
             "is_follow_up_overdue",
+            "email_status",
+            "email_draft_count",
+            "last_email_at",
             "assigned_to",
             "created_at",
         ]
 
     def get_full_name(self, obj):
         return str(obj)
+
+    def get_email_status(self, obj):
+        return getattr(obj, "email_status", "none")
+
+    def get_email_draft_count(self, obj):
+        return getattr(obj, "email_draft_count", 0)
+
+    def get_last_email_at(self, obj):
+        email_status = self.get_email_status(obj)
+        if email_status == "replied":
+            value = getattr(obj, "last_email_reply_at", None)
+        else:
+            value = getattr(obj, "last_email_sent_at", None)
+        if value is None:
+            return None
+        return serializers.DateTimeField().to_representation(value)
 
 
 class LeadMoveSerializer(serializers.Serializer):

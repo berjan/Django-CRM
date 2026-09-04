@@ -1142,6 +1142,7 @@
     if (filters.search) count++;
     if (filters.source) count++;
     if (filters.rating) count++;
+    if (filters.email_status) count++;
     if (filters.zzp_likelihood) count++;
     if (filters.assigned_to?.length > 0) count++;
     if (filters.tags?.length > 0) count++;
@@ -1161,6 +1162,7 @@
       'status',
       'source',
       'rating',
+      'email_status',
       'zzp_likelihood',
       'assigned_to',
       'tags',
@@ -1639,6 +1641,13 @@
         value={filters.rating || 'ALL'}
         onchange={(value) => updateFilters({ ...filters, rating: value })}
         class="w-32"
+      />
+      <SelectFilter
+        label="E-mail"
+        options={filterOptions.emailStatuses}
+        value={filters.email_status || 'ALL'}
+        onchange={(value) => updateFilters({ ...filters, email_status: value })}
+        class="w-48"
       />
       <SelectFilter
         label="Freelancer / ZZP"

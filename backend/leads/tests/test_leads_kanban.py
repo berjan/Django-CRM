@@ -1,8 +1,16 @@
+import datetime
+
 import pytest
 from django.db import connection
+from django.utils import timezone
 
+from communications.models import (
+    EmailDraft,
+    EmailThread,
+    LeadEmailMessage,
+    MailboxConnection,
+)
 from leads.models import Lead, LeadPipeline, LeadStage
-
 
 pg_only = pytest.mark.skipif(
     connection.vendor != "postgresql",
@@ -480,6 +488,171 @@ class TestLeadKanbanView:
         )
         response = admin_client.get("/api/leads/kanban/", {"rating": "HOT"})
         assert response.status_code == 200
+
+    def test_kanban_exposes_current_email_status(self, admin_client, admin_user, org_a):
+        """Cards distinguish drafts, sends, replies, follow-ups, and no email."""
+        _set_rls(org_a)
+        mailbox = MailboxConnection.objects.create(
+            org=org_a,
+            email_address="kanban@bruensdt.nl",
+            credentials_encrypted="test",
+        )
+        now = timezone.now()
+
+        leads = {}
+        for email_status in ("none", "draft", "sent", "follow_up", "replied"):
+            leads[email_status] = Lead.objects.create(
+                company_name=f"Email {email_status}",
+                email=f"{email_status}@example.com",
+                status="assigned",
+                next_follow_up=(
+                    timezone.localdate() - datetime.timedelta(days=1)
+                    if email_status in {"follow_up", "replied"}
+                    else timezone.localdate() + datetime.timedelta(days=5)
+                ),
+                created_by=admin_user,
+                org=org_a,
+            )
+
+        EmailDraft.objects.create(
+            org=org_a,
+            lead=leads["draft"],
+            mailbox=mailbox,
+            recipient=leads["draft"].email,
+            subject="Draft",
+            body_text="Draft body",
+        )
+
+        for email_status in ("sent", "follow_up", "replied"):
+            lead = leads[email_status]
+            thread = EmailThread.objects.create(
+                org=org_a,
+                mailbox=mailbox,
+                lead=lead,
+                provider_thread_id=f"thread-{email_status}",
+                subject=f"Email {email_status}",
+                last_message_at=now,
+            )
+            LeadEmailMessage.objects.create(
+                org=org_a,
+                thread=thread,
+                mailbox=mailbox,
+                provider_message_id=f"outbound-{email_status}",
+                direction=LeadEmailMessage.DIRECTION_OUTBOUND,
+                from_address=mailbox.email_address,
+                to_addresses=[lead.email],
+                subject=thread.subject,
+                occurred_at=now - datetime.timedelta(hours=1),
+            )
+            if email_status == "replied":
+                LeadEmailMessage.objects.create(
+                    org=org_a,
+                    thread=thread,
+                    mailbox=mailbox,
+                    provider_message_id="inbound-replied",
+                    direction=LeadEmailMessage.DIRECTION_INBOUND,
+                    from_address=lead.email,
+                    to_addresses=[mailbox.email_address],
+                    subject=thread.subject,
+                    occurred_at=now,
+                )
+
+        response = admin_client.get("/api/leads/kanban/")
+
+        assert response.status_code == 200
+        cards = {
+            card["company_name"]: card
+            for column in response.json()["columns"]
+            for card in column["leads"]
+            if card["company_name"] and card["company_name"].startswith("Email ")
+        }
+        assert cards["Email none"]["email_status"] == "none"
+        assert cards["Email none"]["last_email_at"] is None
+        assert cards["Email draft"]["email_status"] == "draft"
+        assert cards["Email draft"]["email_draft_count"] == 1
+        assert cards["Email sent"]["email_status"] == "sent"
+        assert cards["Email sent"]["last_email_at"] is not None
+        assert cards["Email follow_up"]["email_status"] == "follow_up"
+        assert cards["Email replied"]["email_status"] == "replied"
+        assert cards["Email replied"]["last_email_at"] is not None
+
+    def test_kanban_email_status_filter(self, admin_client, admin_user, org_a):
+        """The kanban can be narrowed to leads with a reviewable draft."""
+        _set_rls(org_a)
+        mailbox = MailboxConnection.objects.create(
+            org=org_a,
+            email_address="filter@bruensdt.nl",
+            credentials_encrypted="test",
+        )
+        draft_lead = Lead.objects.create(
+            company_name="Has draft",
+            email="has-draft@example.com",
+            status="assigned",
+            created_by=admin_user,
+            org=org_a,
+        )
+        Lead.objects.create(
+            company_name="Has no email activity",
+            email="no-email-activity@example.com",
+            status="assigned",
+            created_by=admin_user,
+            org=org_a,
+        )
+        EmailDraft.objects.create(
+            org=org_a,
+            lead=draft_lead,
+            mailbox=mailbox,
+            recipient=draft_lead.email,
+            subject="Draft",
+            body_text="Draft body",
+        )
+
+        response = admin_client.get("/api/leads/kanban/", {"email_status": "draft"})
+
+        assert response.status_code == 200
+        cards = [
+            card for column in response.json()["columns"] for card in column["leads"]
+        ]
+        assert response.json()["total_leads"] == 1
+        assert [card["company_name"] for card in cards] == ["Has draft"]
+
+    def test_lead_list_email_status_filter(self, admin_client, admin_user, org_a):
+        """The shared email filter also behaves consistently in table mode."""
+        _set_rls(org_a)
+        mailbox = MailboxConnection.objects.create(
+            org=org_a,
+            email_address="list-filter@bruensdt.nl",
+            credentials_encrypted="test",
+        )
+        draft_lead = Lead.objects.create(
+            company_name="Table draft",
+            email="table-draft@example.com",
+            status="assigned",
+            created_by=admin_user,
+            org=org_a,
+        )
+        Lead.objects.create(
+            company_name="Table no email",
+            email="table-none@example.com",
+            status="assigned",
+            created_by=admin_user,
+            org=org_a,
+        )
+        EmailDraft.objects.create(
+            org=org_a,
+            lead=draft_lead,
+            mailbox=mailbox,
+            recipient=draft_lead.email,
+            subject="Draft",
+            body_text="Draft body",
+        )
+
+        response = admin_client.get("/api/leads/", {"email_status": "draft"})
+
+        assert response.status_code == 200
+        data = response.json()["open_leads"]
+        assert data["leads_count"] == 1
+        assert [lead["company_name"] for lead in data["open_leads"]] == ["Table draft"]
 
     @pg_only
     def test_kanban_custom_field_filter(self, admin_client, admin_user, org_a):

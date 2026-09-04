@@ -8,7 +8,7 @@ from decimal import Decimal
 from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
-from drf_spectacular.utils import extend_schema, OpenApiParameter, inline_serializer
+from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
 from rest_framework import serializers, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -16,12 +16,13 @@ from rest_framework.views import APIView
 
 from common.permissions import HasOrgContext
 from common.utils import LEAD_STATUS
+from leads.email_status import annotate_email_status, filter_email_status
 from leads.models import Lead, LeadPipeline, LeadStage
 from leads.serializer import (
     LeadKanbanCardSerializer,
     LeadMoveSerializer,
-    LeadPipelineSerializer,
     LeadPipelineListSerializer,
+    LeadPipelineSerializer,
     LeadStageSerializer,
 )
 
@@ -66,6 +67,12 @@ class LeadKanbanView(APIView):
                 required=False,
                 type=str,
             ),
+            OpenApiParameter(
+                name="email_status",
+                description="Filter by email state: none, draft, sent, replied, follow_up",
+                required=False,
+                type=str,
+            ),
         ],
     )
     def get(self, request):
@@ -80,6 +87,7 @@ class LeadKanbanView(APIView):
             .select_related("created_by", "stage")
             .prefetch_related("assigned_to", "tags")
         )
+        queryset = annotate_email_status(queryset)
 
         # Apply permission filtering
         if request.profile.role != "ADMIN" and not request.user.is_superuser:
@@ -117,6 +125,8 @@ class LeadKanbanView(APIView):
             queryset = queryset.filter(created_at__gte=params.get("created_at__gte"))
         if params.get("created_at__lte"):
             queryset = queryset.filter(created_at__lte=params.get("created_at__lte"))
+        if params.get("email_status"):
+            queryset = filter_email_status(queryset, params.get("email_status"))
         for raw_key, raw_value in params.items():
             if raw_key.startswith("cf_") and raw_value:
                 cf_key = raw_key[3:]
@@ -289,7 +299,11 @@ class LeadMoveView(APIView):
             {
                 "error": False,
                 "message": "Lead moved successfully",
-                "lead": LeadKanbanCardSerializer(lead).data,
+                "lead": LeadKanbanCardSerializer(
+                    annotate_email_status(
+                        Lead.objects.filter(pk=lead.pk, org=org)
+                    ).get()
+                ).data,
             }
         )
 

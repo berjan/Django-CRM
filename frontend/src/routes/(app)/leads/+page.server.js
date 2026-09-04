@@ -36,6 +36,7 @@ export async function load({ url, cookies, locals }) {
     status: url.searchParams.get('status') || '',
     source: url.searchParams.get('source') || '',
     rating: url.searchParams.get('rating') || '',
+    email_status: url.searchParams.get('email_status') || '',
     zzp_likelihood: url.searchParams.get('zzp_likelihood') || '',
     assigned_to: url.searchParams.getAll('assigned_to'),
     tags: url.searchParams.getAll('tags'),
@@ -51,6 +52,7 @@ export async function load({ url, cookies, locals }) {
   if (filters.status) queryParams.append('status', filters.status.toLowerCase().replace(/_/g, ' '));
   if (filters.source) queryParams.append('source', filters.source.toLowerCase());
   if (filters.rating) queryParams.append('rating', filters.rating);
+  if (filters.email_status) queryParams.append('email_status', filters.email_status);
   if (filters.zzp_likelihood) {
     queryParams.append('cf_partner_zzp_likelihood', filters.zzp_likelihood);
   }
@@ -65,6 +67,9 @@ export async function load({ url, cookies, locals }) {
     if (filters.search) kanbanQueryParams.append('search', filters.search);
     if (filters.source) kanbanQueryParams.append('source', filters.source.toLowerCase());
     if (filters.rating) kanbanQueryParams.append('rating', filters.rating);
+    if (filters.email_status) {
+      kanbanQueryParams.append('email_status', filters.email_status);
+    }
     if (filters.zzp_likelihood) {
       kanbanQueryParams.append('cf_partner_zzp_likelihood', filters.zzp_likelihood);
     }
@@ -253,6 +258,13 @@ export async function load({ url, cookies, locals }) {
           { value: 'HOT', label: 'Hot' },
           { value: 'WARM', label: 'Warm' },
           { value: 'COLD', label: 'Cold' }
+        ],
+        emailStatuses: [
+          { value: 'draft', label: 'Concept' },
+          { value: 'sent', label: 'Verzonden' },
+          { value: 'replied', label: 'Reactie ontvangen' },
+          { value: 'follow_up', label: 'Follow-up nodig' },
+          { value: 'none', label: 'Geen e-mailactiviteit' }
         ],
         zzpLikelihoods: [
           { value: 'Hoog', label: 'Waarschijnlijk' },
