@@ -59,6 +59,7 @@ ORG_SCOPED_TABLES = [
     "communication_email_thread",
     "communication_email_message",
     "communication_email_suppression",
+    "communication_email_signature",
     "communication_email_template",
     "communication_email_template_version",
     "communication_lead_template_assignment",

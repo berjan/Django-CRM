@@ -20,6 +20,7 @@ from communications.gmail import (
 )
 from communications.models import (
     EmailDraft,
+    EmailSignature,
     EmailTemplate,
     EmailTemplateVersion,
     EmailThread,
@@ -27,10 +28,11 @@ from communications.models import (
     MailboxConnection,
     ThreadReadState,
 )
-from communications.render import ALLOWED_VARIABLES, render_email, text_to_html
+from communications.render import ALLOWED_VARIABLES, render_email, render_outbound_email
 from communications.serializers import (
     EmailDraftSerializer,
     EmailMessageSerializer,
+    EmailSignatureSerializer,
     EmailTemplateSerializer,
     EmailThreadSerializer,
     LeadEmailTemplateAssignmentSerializer,
@@ -127,6 +129,54 @@ class MailboxListView(APIView):
                 "mailboxes": MailboxConnectionSerializer(mailboxes, many=True).data,
             }
         )
+
+
+class EmailSignatureView(APIView):
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def get(self, request):
+        signature = EmailSignature.objects.filter(org=request.profile.org).first()
+        return Response(
+            {
+                "signature": (
+                    EmailSignatureSerializer(signature).data if signature else None
+                )
+            }
+        )
+
+    @transaction.atomic
+    def patch(self, request):
+        if not _is_admin(request.profile):
+            return Response(
+                {"detail": "Admin access required"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        signature = EmailSignature.objects.filter(org=request.profile.org).first()
+        serializer = EmailSignatureSerializer(
+            signature,
+            data=request.data,
+            partial=signature is not None,
+        )
+        serializer.is_valid(raise_exception=True)
+        if signature is None:
+            signature = serializer.save(org=request.profile.org)
+        else:
+            signature = serializer.save()
+
+        drafts = list(
+            EmailDraft.objects.filter(
+                org=request.profile.org, status=EmailDraft.STATUS_DRAFT
+            )
+        )
+        for draft in drafts:
+            draft.body_html = render_outbound_email(
+                draft.body_text,
+                organization=request.profile.org,
+                signature=signature,
+            ).body_html
+        if drafts:
+            EmailDraft.objects.bulk_update(drafts, ["body_html"])
+        return Response({"signature": EmailSignatureSerializer(signature).data})
 
 
 class GmailConnectView(APIView):
@@ -367,7 +417,9 @@ class ThreadDraftListCreateView(APIView):
             recipient=thread.lead.email.strip().lower(),
             subject=thread.subject,
             body_text=body_text,
-            body_html=text_to_html(body_text),
+            body_html=render_outbound_email(
+                body_text, organization=request.profile.org
+            ).body_html,
             follow_up_days=payload.validated_data["follow_up_days"],
             source=source,
         )
@@ -688,7 +740,9 @@ class LeadDraftListCreateView(APIView):
         else:
             subject = payload.validated_data["subject"].strip()
             body_text = payload.validated_data["body_text"].strip()
-            body_html = text_to_html(body_text)
+            body_html = render_outbound_email(
+                body_text, organization=request.profile.org
+            ).body_html
         draft = EmailDraft.objects.create(
             org=request.profile.org,
             lead=lead,
@@ -721,7 +775,9 @@ class EmailDraftDetailView(APIView):
         for field in ("subject", "body_text", "follow_up_days"):
             if field in payload.validated_data:
                 setattr(draft, field, payload.validated_data[field])
-        draft.body_html = text_to_html(draft.body_text)
+        draft.body_html = render_outbound_email(
+            draft.body_text, organization=request.profile.org
+        ).body_html
         draft.save()
         return Response(EmailDraftSerializer(draft).data)
 

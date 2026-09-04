@@ -3,6 +3,7 @@ from django.urls import path
 from communications.views import (
     EmailDraftDetailView,
     EmailDraftSendView,
+    EmailSignatureView,
     EmailTemplateDetailView,
     EmailTemplateDuplicateView,
     EmailTemplateListCreateView,
@@ -27,6 +28,7 @@ from communications.views import (
 app_name = "api_communications"
 
 urlpatterns = [
+    path("signature/", EmailSignatureView.as_view(), name="signature"),
     path("templates/", EmailTemplateListCreateView.as_view(), name="templates"),
     path(
         "templates/variables/",

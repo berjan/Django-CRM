@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from communications.models import (
     EmailDraft,
+    EmailSignature,
     EmailSuppression,
     EmailTemplate,
     EmailTemplateVersion,
@@ -32,4 +33,5 @@ admin.site.register(EmailTemplate)
 admin.site.register(EmailTemplateVersion)
 admin.site.register(LeadEmailTemplateAssignment)
 admin.site.register(EmailDraft)
+admin.site.register(EmailSignature)
 admin.site.register(ThreadReadState)

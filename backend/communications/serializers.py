@@ -1,7 +1,10 @@
+import re
+
 from rest_framework import serializers
 
 from communications.models import (
     EmailDraft,
+    EmailSignature,
     EmailTemplate,
     EmailTemplateVersion,
     EmailThread,
@@ -9,7 +12,71 @@ from communications.models import (
     LeadEmailTemplateAssignment,
     MailboxConnection,
 )
-from communications.render import find_unknown_variables
+from communications.render import find_unknown_variables, render_outbound_email
+
+
+class EmailSignatureSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EmailSignature
+        fields = (
+            "id",
+            "sender_name",
+            "sender_role",
+            "company_name",
+            "phone_number",
+            "email_address",
+            "website_url",
+            "address",
+            "logo_url",
+            "primary_color",
+            "accent_color",
+            "certifications",
+            "review_score",
+            "review_count",
+            "reviews_url",
+            "projects_url",
+            "is_enabled",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = ("id", "created_at", "updated_at")
+
+    @staticmethod
+    def _validate_color(value):
+        if not re.fullmatch(r"#[0-9a-fA-F]{6}", value):
+            raise serializers.ValidationError("Use a hexadecimal color like #426451")
+        return value.upper()
+
+    def validate_primary_color(self, value):
+        return self._validate_color(value)
+
+    def validate_accent_color(self, value):
+        return self._validate_color(value)
+
+    def validate_review_score(self, value):
+        if value is not None and not 0 <= value <= 10:
+            raise serializers.ValidationError("Review score must be between 0 and 10")
+        return value
+
+    def validate_certifications(self, value):
+        if not isinstance(value, list) or len(value) > 6:
+            raise serializers.ValidationError(
+                "Use a list of at most six certifications"
+            )
+        cleaned = []
+        for item in value:
+            if not isinstance(item, dict) or not str(item.get("name", "")).strip():
+                raise serializers.ValidationError("Each certification requires a name")
+            certification = {"name": str(item["name"]).strip()[:100]}
+            for key in ("url", "image_url"):
+                url = str(item.get(key, "")).strip()
+                if url and not url.startswith("https://"):
+                    raise serializers.ValidationError(
+                        f"Certification {key} must use HTTPS"
+                    )
+                certification[key] = url
+            cleaned.append(certification)
+        return cleaned
 
 
 class MailboxConnectionSerializer(serializers.ModelSerializer):
@@ -200,6 +267,7 @@ class LeadEmailTemplateAssignmentSerializer(serializers.ModelSerializer):
 
 
 class EmailDraftSerializer(serializers.ModelSerializer):
+    body_html = serializers.SerializerMethodField()
     template_id = serializers.UUIDField(
         source="template_version.template_id", read_only=True
     )
@@ -249,3 +317,15 @@ class EmailDraftSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
+
+    def get_body_html(self, obj):
+        if obj.status != EmailDraft.STATUS_DRAFT:
+            return obj.body_html
+        signature = EmailSignature.objects.filter(
+            org_id=obj.org_id, is_enabled=True
+        ).first()
+        return render_outbound_email(
+            obj.body_text,
+            organization=obj.org_id,
+            signature=signature,
+        ).body_html

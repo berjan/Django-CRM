@@ -36,16 +36,18 @@ export async function load({ cookies, locals, url }) {
   }
 
   try {
-    const [response, templateResponse, variableResponse] = await Promise.all([
+    const [response, templateResponse, variableResponse, signatureResponse] = await Promise.all([
       apiRequest('/communications/mailboxes/', {}, { cookies, org: locals.org }),
       apiRequest('/communications/templates/', {}, { cookies, org: locals.org }),
-      apiRequest('/communications/templates/variables/', {}, { cookies, org: locals.org })
+      apiRequest('/communications/templates/variables/', {}, { cookies, org: locals.org }),
+      apiRequest('/communications/signature/', {}, { cookies, org: locals.org })
     ]);
     return {
       configured: response.configured,
       mailboxes: response.mailboxes || [],
       templates: templateResponse.results || [],
       templateVariables: variableResponse.results || [],
+      emailSignature: signatureResponse.signature || null,
       connected: url.searchParams.get('connected') === '1',
       oauthError: url.searchParams.get('oauth_error') || ''
     };
@@ -57,6 +59,48 @@ export async function load({ cookies, locals, url }) {
 
 /** @type {import('./$types').Actions} */
 export const actions = {
+  updateSignature: async ({ request, cookies, locals }) => {
+    requireAdmin(locals.profile);
+    const data = await request.formData();
+    const certifications = [1, 2, 3]
+      .map((number) => ({
+        name: String(data.get(`cert_${number}_name`) || '').trim(),
+        url: String(data.get(`cert_${number}_url`) || '').trim(),
+        image_url: String(data.get(`cert_${number}_image_url`) || '').trim()
+      }))
+      .filter((certification) => certification.name);
+    try {
+      await apiRequest(
+        '/communications/signature/',
+        {
+          method: 'PATCH',
+          body: {
+            sender_name: String(data.get('sender_name') || ''),
+            sender_role: String(data.get('sender_role') || ''),
+            company_name: String(data.get('company_name') || ''),
+            phone_number: String(data.get('phone_number') || ''),
+            email_address: String(data.get('email_address') || ''),
+            website_url: String(data.get('website_url') || ''),
+            address: String(data.get('address') || ''),
+            logo_url: String(data.get('logo_url') || ''),
+            primary_color: String(data.get('primary_color') || ''),
+            accent_color: String(data.get('accent_color') || ''),
+            certifications,
+            review_score: data.get('review_score') ? String(data.get('review_score')) : null,
+            review_count: data.get('review_count') ? Number(data.get('review_count')) : null,
+            reviews_url: String(data.get('reviews_url') || ''),
+            projects_url: String(data.get('projects_url') || ''),
+            is_enabled: data.get('is_enabled') === 'on'
+          }
+        },
+        { cookies, org: locals.org }
+      );
+      return { success: true, signatureUpdated: true };
+    } catch (err) {
+      return fail(400, { error: err?.message || 'Handtekening opslaan mislukt' });
+    }
+  },
+
   connect: async ({ cookies, locals }) => {
     requireAdmin(locals.profile);
     try {

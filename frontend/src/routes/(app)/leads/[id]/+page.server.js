@@ -18,13 +18,16 @@ export async function load({ params, locals, cookies, url }) {
   }
 
   try {
-    const [response, mailboxResponse, templateResponse] = await Promise.all([
+    const [response, mailboxResponse, templateResponse, signatureResponse] = await Promise.all([
       apiRequest(`/leads/${params.id}/`, {}, { cookies, org }),
       apiRequest('/communications/mailboxes/', {}, { cookies, org }).catch(() => ({
         mailboxes: []
       })),
       apiRequest('/communications/templates/?active=true', {}, { cookies, org }).catch(() => ({
         results: []
+      })),
+      apiRequest('/communications/signature/', {}, { cookies, org }).catch(() => ({
+        signature: null
       }))
     ]);
 
@@ -46,6 +49,7 @@ export async function load({ params, locals, cookies, url }) {
       customFieldValues: lead?.custom_fields || {},
       communicationMailboxes: mailboxResponse.mailboxes || [],
       communicationTemplates: templateResponse.results || [],
+      communicationSignature: signatureResponse.signature || null,
       initialTab: ['overview', 'activity', 'files', 'email'].includes(
         url.searchParams.get('tab') || ''
       )

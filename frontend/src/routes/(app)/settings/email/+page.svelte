@@ -15,6 +15,7 @@
   import { toast } from 'svelte-sonner';
   import { PageHeader } from '$lib/components/layout';
   import { Button } from '$lib/components/ui/button/index.js';
+  import EmailSignaturePreview from '$lib/components/email/EmailSignaturePreview.svelte';
 
   /** @type {{ data: any, form: any }} */
   let { data, form } = $props();
@@ -47,6 +48,10 @@
       toast.success('E-mailtemplate gedeactiveerd');
       invalidateAll();
     }
+    if (form?.signatureUpdated) {
+      toast.success('E-mailhandtekening opgeslagen');
+      invalidateAll();
+    }
   });
 </script>
 
@@ -77,6 +82,214 @@
         </div>
       </section>
     {/if}
+
+    <section
+      class="rounded-lg border border-[var(--border-default)] bg-[var(--surface-default)] p-5"
+    >
+      <div>
+        <h2 class="font-semibold text-[var(--text-primary)]">Vaste e-mailhandtekening</h2>
+        <p class="mt-1 text-sm text-[var(--text-secondary)]">
+          Deze handtekening wordt automatisch onder iedere eerste e-mail en ieder antwoord gezet.
+          Zet hem daarom niet in de losse berichttemplates.
+        </p>
+      </div>
+
+      {#if data.emailSignature}
+        <div
+          class="mt-5 overflow-x-auto rounded-lg border border-[var(--border-default)] bg-white p-5"
+        >
+          <EmailSignaturePreview signature={data.emailSignature} />
+        </div>
+        <form method="POST" action="?/updateSignature" use:enhance class="mt-5 space-y-4">
+          <div class="grid gap-3 md:grid-cols-2">
+            <label class="space-y-1 text-sm">
+              <span>Naam afzender</span>
+              <input
+                name="sender_name"
+                required
+                value={data.emailSignature.sender_name}
+                class="h-9 w-full rounded-md border border-[var(--border-default)] bg-transparent px-3"
+              />
+            </label>
+            <label class="space-y-1 text-sm">
+              <span>Functie</span>
+              <input
+                name="sender_role"
+                value={data.emailSignature.sender_role}
+                class="h-9 w-full rounded-md border border-[var(--border-default)] bg-transparent px-3"
+              />
+            </label>
+            <label class="space-y-1 text-sm">
+              <span>Bedrijfsnaam</span>
+              <input
+                name="company_name"
+                required
+                value={data.emailSignature.company_name}
+                class="h-9 w-full rounded-md border border-[var(--border-default)] bg-transparent px-3"
+              />
+            </label>
+            <label class="space-y-1 text-sm">
+              <span>Telefoonnummer</span>
+              <input
+                name="phone_number"
+                value={data.emailSignature.phone_number}
+                class="h-9 w-full rounded-md border border-[var(--border-default)] bg-transparent px-3"
+              />
+            </label>
+            <label class="space-y-1 text-sm">
+              <span>E-mailadres</span>
+              <input
+                name="email_address"
+                type="email"
+                required
+                value={data.emailSignature.email_address}
+                class="h-9 w-full rounded-md border border-[var(--border-default)] bg-transparent px-3"
+              />
+            </label>
+            <label class="space-y-1 text-sm">
+              <span>Website</span>
+              <input
+                name="website_url"
+                type="url"
+                value={data.emailSignature.website_url}
+                class="h-9 w-full rounded-md border border-[var(--border-default)] bg-transparent px-3"
+              />
+            </label>
+          </div>
+          <label class="block space-y-1 text-sm">
+            <span>Adres</span>
+            <input
+              name="address"
+              value={data.emailSignature.address}
+              class="h-9 w-full rounded-md border border-[var(--border-default)] bg-transparent px-3"
+            />
+          </label>
+          <label class="block space-y-1 text-sm">
+            <span>Logo-URL</span>
+            <input
+              name="logo_url"
+              type="url"
+              value={data.emailSignature.logo_url}
+              class="h-9 w-full rounded-md border border-[var(--border-default)] bg-transparent px-3"
+            />
+          </label>
+          <div class="grid gap-3 md:grid-cols-2">
+            <label class="space-y-1 text-sm">
+              <span>Primaire kleur</span>
+              <input
+                name="primary_color"
+                type="color"
+                value={data.emailSignature.primary_color}
+                class="h-9 w-full rounded-md border border-[var(--border-default)] bg-transparent p-1"
+              />
+            </label>
+            <label class="space-y-1 text-sm">
+              <span>Accentkleur</span>
+              <input
+                name="accent_color"
+                type="color"
+                value={data.emailSignature.accent_color}
+                class="h-9 w-full rounded-md border border-[var(--border-default)] bg-transparent p-1"
+              />
+            </label>
+          </div>
+
+          <fieldset class="space-y-3">
+            <legend class="text-sm font-medium">Reviews en projecten</legend>
+            <div class="grid gap-3 md:grid-cols-2">
+              <label class="space-y-1 text-sm">
+                <span>Reviewscore</span>
+                <input
+                  name="review_score"
+                  type="number"
+                  min="0"
+                  max="10"
+                  step="0.1"
+                  value={data.emailSignature.review_score || ''}
+                  class="h-9 w-full rounded-md border border-[var(--border-default)] bg-transparent px-3"
+                />
+              </label>
+              <label class="space-y-1 text-sm">
+                <span>Aantal beoordelingen</span>
+                <input
+                  name="review_count"
+                  type="number"
+                  min="0"
+                  value={data.emailSignature.review_count || ''}
+                  class="h-9 w-full rounded-md border border-[var(--border-default)] bg-transparent px-3"
+                />
+              </label>
+            </div>
+            <div class="grid gap-3 md:grid-cols-2">
+              <label class="space-y-1 text-sm">
+                <span>Link naar alle reviews</span>
+                <input
+                  name="reviews_url"
+                  type="url"
+                  value={data.emailSignature.reviews_url || ''}
+                  class="h-9 w-full rounded-md border border-[var(--border-default)] bg-transparent px-3"
+                />
+              </label>
+              <label class="space-y-1 text-sm">
+                <span>Link naar projecten</span>
+                <input
+                  name="projects_url"
+                  type="url"
+                  value={data.emailSignature.projects_url || ''}
+                  class="h-9 w-full rounded-md border border-[var(--border-default)] bg-transparent px-3"
+                />
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="space-y-3">
+            <legend class="text-sm font-medium">Certificeringen</legend>
+            {#each [0, 1, 2] as index (index)}
+              {@const certification = data.emailSignature.certifications?.[index] || {}}
+              <div class="grid gap-2 rounded-md bg-[var(--surface-muted)] p-3 md:grid-cols-3">
+                <label class="space-y-1 text-xs">
+                  <span>Naam</span>
+                  <input
+                    name={`cert_${index + 1}_name`}
+                    value={certification.name || ''}
+                    class="h-9 w-full rounded-md border border-[var(--border-default)] bg-[var(--surface-default)] px-3"
+                  />
+                </label>
+                <label class="space-y-1 text-xs">
+                  <span>Bewijspagina</span>
+                  <input
+                    name={`cert_${index + 1}_url`}
+                    type="url"
+                    value={certification.url || ''}
+                    class="h-9 w-full rounded-md border border-[var(--border-default)] bg-[var(--surface-default)] px-3"
+                  />
+                </label>
+                <label class="space-y-1 text-xs">
+                  <span>Logo-URL</span>
+                  <input
+                    name={`cert_${index + 1}_image_url`}
+                    type="url"
+                    value={certification.image_url || ''}
+                    class="h-9 w-full rounded-md border border-[var(--border-default)] bg-[var(--surface-default)] px-3"
+                  />
+                </label>
+              </div>
+            {/each}
+          </fieldset>
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <label class="flex items-center gap-2 text-sm">
+              <input type="checkbox" name="is_enabled" checked={data.emailSignature.is_enabled} />
+              Automatisch toevoegen
+            </label>
+            <Button type="submit" class="gap-1.5"
+              ><Save class="h-4 w-4" /> Handtekening opslaan</Button
+            >
+          </div>
+        </form>
+      {:else}
+        <p class="mt-4 text-sm text-amber-700">Er is nog geen handtekening geconfigureerd.</p>
+      {/if}
+    </section>
 
     <section
       class="rounded-lg border border-[var(--border-default)] bg-[var(--surface-default)] p-5"

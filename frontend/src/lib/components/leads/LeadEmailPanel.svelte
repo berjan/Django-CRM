@@ -17,12 +17,14 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { Textarea } from '$lib/components/ui/textarea/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
+  import EmailSignaturePreview from '$lib/components/email/EmailSignaturePreview.svelte';
 
-  /** @type {{ lead: any, mailboxes?: any[], templates?: any[], variant?: 'compact' | 'full', onunreadchange?: (count: number) => void, ondraftchange?: (count: number) => void }} */
+  /** @type {{ lead: any, mailboxes?: any[], templates?: any[], signature?: any, variant?: 'compact' | 'full', onunreadchange?: (count: number) => void, ondraftchange?: (count: number) => void }} */
   let {
     lead,
     mailboxes = [],
     templates = [],
+    signature = null,
     variant = 'compact',
     onunreadchange = () => {},
     ondraftchange = () => {}
@@ -760,6 +762,16 @@
         <Label for="lead-email-body">Bericht</Label>
         <Textarea id="lead-email-body" bind:value={bodyText} rows="8" />
       </div>
+      {#if signature?.is_enabled}
+        <details class="rounded-md border border-[var(--border-default)] bg-white p-3">
+          <summary class="cursor-pointer text-xs font-medium text-[var(--text-secondary)]">
+            Vaste Bruens-handtekening · wordt automatisch toegevoegd
+          </summary>
+          <div class="mt-3 border-t border-[var(--border-default)] pt-3">
+            <EmailSignaturePreview {signature} compact={variant !== 'full'} />
+          </div>
+        </details>
+      {/if}
       <div class="flex flex-wrap items-end justify-between gap-3">
         <div class="w-40 space-y-1">
           <Label for="lead-email-follow-up">Opvolgen na dagen</Label>
@@ -997,6 +1009,11 @@
                 ? 'Pas de template toe om het antwoord te bekijken…'
                 : 'Schrijf een antwoord…'}
             />
+            {#if signature?.is_enabled}
+              <p class="text-xs text-[var(--text-tertiary)]">
+                De vaste Bruens-handtekening wordt automatisch onder dit antwoord geplaatst.
+              </p>
+            {/if}
             <div class="flex flex-wrap items-center justify-between gap-2">
               <span class="text-xs text-[var(--text-tertiary)]">
                 {replyDraftId ? 'Concept opgeslagen' : 'Wordt in dezelfde Gmail-thread verzonden'}

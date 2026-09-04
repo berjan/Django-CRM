@@ -12,6 +12,7 @@ from communications.crypto import decrypt_credentials, encrypt_credentials
 from communications.gmail import reply_to_thread, send_lead_email, sync_mailbox
 from communications.models import (
     EmailDraft,
+    EmailSignature,
     EmailSuppression,
     EmailTemplate,
     EmailTemplateVersion,
@@ -20,7 +21,7 @@ from communications.models import (
     LeadEmailTemplateAssignment,
     MailboxConnection,
 )
-from communications.render import render_email
+from communications.render import render_email, render_outbound_email
 from leads.models import Lead
 
 
@@ -44,6 +45,42 @@ def lead(org_a):
         last_name="Installateur",
         email="jan@example.com",
         status="assigned",
+    )
+
+
+@pytest.fixture
+def email_signature(org_a):
+    return EmailSignature.objects.create(
+        org=org_a,
+        sender_name="Jordan Bruens",
+        sender_role="Eigenaar & installateur",
+        company_name="Bruens Duurzame Technieken",
+        phone_number="055 203 21 91",
+        email_address="info@bruensdt.nl",
+        website_url="https://bruensdt.nl",
+        address="Laan van de Maagd 129, 7324 BT Apeldoorn",
+        logo_url="https://bruensdt.nl/static/img/Logo_Bruens-DT.png",
+        review_score="9.6",
+        review_count=283,
+        reviews_url="https://www.bruensdt.nl/bekijk-al-onze-reviews/",
+        projects_url="https://www.bruensdt.nl/projecten/",
+        certifications=[
+            {
+                "name": "InstallQ erkend",
+                "url": "https://bruensdt.nl/installq",
+                "image_url": "https://bruensdt.nl/static/img/installq.png",
+            },
+            {
+                "name": "Kiwa BRL100 / F-gassen",
+                "url": "https://bruensdt.nl/kiwa",
+                "image_url": "https://bruensdt.nl/static/img/kiwa.png",
+            },
+            {
+                "name": "Zaptec Certified Installer",
+                "url": "https://bruensdt.nl/zaptec",
+                "image_url": "https://bruensdt.nl/static/img/zaptec.png",
+            },
+        ],
     )
 
 
@@ -147,6 +184,87 @@ def test_only_admin_can_start_gmail_oauth(admin_client, user_client):
 
     assert admin_response.status_code == 503
     assert user_response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_signature_api_is_org_scoped_and_admin_managed(
+    admin_client, user_client, org_b_client, email_signature
+):
+    response = admin_client.get("/api/communications/signature/")
+    other_response = org_b_client.get("/api/communications/signature/")
+    forbidden = user_client.patch(
+        "/api/communications/signature/",
+        {"sender_role": "Monteur"},
+        format="json",
+    )
+    updated = admin_client.patch(
+        "/api/communications/signature/",
+        {"sender_role": "Eigenaar & installateur"},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["signature"]["sender_name"] == "Jordan Bruens"
+    assert other_response.json()["signature"] is None
+    assert forbidden.status_code == 403
+    assert updated.status_code == 200
+    assert updated.json()["signature"]["sender_role"] == "Eigenaar & installateur"
+
+
+@pytest.mark.django_db
+def test_branded_renderer_escapes_content_and_includes_certifications(
+    org_a, email_signature
+):
+    rendered = render_outbound_email(
+        "Beste <Jan>,\n\nWelkom.",
+        organization=org_a,
+    )
+
+    assert "Beste &lt;Jan&gt;" in rendered.body_html
+    assert "Logo_Bruens-DT.png" in rendered.body_html
+    assert "InstallQ erkend" in rendered.body_html
+    assert "Kiwa BRL100 / F-gassen" in rendered.body_html
+    assert "Zaptec Certified Installer" in rendered.body_html
+    assert "9,6/10" in rendered.body_html
+    assert "283+ beoordelingen" in rendered.body_html
+    assert "Bekijk onze reviews" in rendered.body_html
+    assert "Bekijk onze projecten" in rendered.body_html
+    assert "Met vriendelijke groet" in rendered.body_text
+    assert "Klantbeoordeling: 9,6/10" in rendered.body_text
+    assert "https://www.bruensdt.nl/projecten/" in rendered.body_text
+    assert rendered.body_text.count("Jordan Bruens") == 1
+
+
+@pytest.mark.django_db
+@override_settings(GMAIL_TOKEN_ENCRYPTION_KEY="test-encryption-key")
+def test_gmail_mime_and_saved_message_use_branded_signature(
+    mailbox, lead, email_signature
+):
+    service = gmail_service({"id": "gmail-branded", "threadId": "thread-branded"})
+
+    with patch("communications.gmail._service", return_value=service):
+        message = send_lead_email(
+            mailbox=mailbox,
+            lead=lead,
+            subject="Kennismaken",
+            body_text="Beste Jan,",
+        )
+
+    raw = service.users.return_value.messages.return_value.send.call_args.kwargs[
+        "body"
+    ]["raw"]
+    mime = BytesParser(policy=policy.default).parsebytes(
+        base64.urlsafe_b64decode(raw.encode("ascii"))
+    )
+    plain = mime.get_body(preferencelist=("plain",)).get_content()
+    html_body = mime.get_body(preferencelist=("html",)).get_content()
+    assert "Jordan Bruens" in plain
+    assert "InstallQ erkend" in html_body
+    assert "Logo_Bruens-DT.png" in html_body
+    assert "Bekijk onze reviews" in html_body
+    assert "Bekijk onze projecten" in html_body
+    assert message.body_text == plain.rstrip("\n")
+    assert message.body_html in html_body
 
 
 @pytest.mark.django_db

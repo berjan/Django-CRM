@@ -85,7 +85,8 @@ export async function load({ url, cookies, locals }) {
       teamsResponse,
       contactsResponse,
       mailboxesResponse,
-      templatesResponse
+      templatesResponse,
+      signatureResponse
     ] = await Promise.all([
       apiRequest(`/leads/${queryString ? `?${queryString}` : ''}`, {}, { cookies, org }),
       apiRequest('/tags/', {}, { cookies, org }).catch(() => ({ tags: [] })),
@@ -107,6 +108,9 @@ export async function load({ url, cookies, locals }) {
       })),
       apiRequest('/communications/templates/?active=true', {}, { cookies, org }).catch(() => ({
         results: []
+      })),
+      apiRequest('/communications/signature/', {}, { cookies, org }).catch(() => ({
+        signature: null
       }))
     ]);
 
@@ -227,6 +231,7 @@ export async function load({ url, cookies, locals }) {
       kanbanData: kanbanResponse,
       communicationMailboxes: mailboxesResponse.mailboxes || [],
       communicationTemplates: templatesResponse.results || [],
+      communicationSignature: signatureResponse.signature || null,
       filterOptions: {
         statuses: [
           { value: 'ASSIGNED', label: 'Assigned' },

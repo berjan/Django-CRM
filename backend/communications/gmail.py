@@ -21,7 +21,7 @@ from googleapiclient.errors import HttpError
 from cases.inbound.parser import parse_raw_email
 from communications.crypto import decrypt_credentials, encrypt_credentials
 from communications.models import EmailThread, LeadEmailMessage, MailboxConnection
-from communications.render import text_to_html
+from communications.render import render_outbound_email
 
 GMAIL_SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
@@ -176,6 +176,7 @@ def _raw_message(
     to_address: str,
     subject: str,
     body_text: str,
+    body_html: str,
     thread: EmailThread | None = None,
 ) -> tuple[str, str]:
     message = MimeEmailMessage()
@@ -199,7 +200,7 @@ def _raw_message(
             )
 
     message.set_content(body_text)
-    message.add_alternative(text_to_html(body_text), subtype="html")
+    message.add_alternative(body_html, subtype="html")
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode("ascii")
     return raw, rfc_message_id
 
@@ -229,11 +230,13 @@ def send_lead_email(
     ).exists():
         raise ValueError("This email address is suppressed")
 
+    rendered = render_outbound_email(body_text, organization=lead.org)
     raw, rfc_message_id = _raw_message(
         mailbox=mailbox,
         to_address=lead.email,
         subject=subject,
-        body_text=body_text,
+        body_text=rendered.body_text,
+        body_html=rendered.body_html,
     )
     result = (
         _service(mailbox)
@@ -261,8 +264,8 @@ def send_lead_email(
         from_address=mailbox.email_address,
         to_addresses=[lead.email],
         subject=subject,
-        body_text=body_text,
-        body_html=text_to_html(body_text),
+        body_text=rendered.body_text,
+        body_html=rendered.body_html,
         provider_labels=result.get("labelIds", ["SENT"]),
         occurred_at=now,
     )
@@ -292,11 +295,13 @@ def reply_to_thread(
     ).exists():
         raise ValueError("This email address is suppressed")
 
+    rendered = render_outbound_email(body_text, organization=lead.org)
     raw, rfc_message_id = _raw_message(
         mailbox=mailbox,
         to_address=lead.email,
         subject=thread.subject,
-        body_text=body_text,
+        body_text=rendered.body_text,
+        body_html=rendered.body_html,
         thread=thread,
     )
     result = (
@@ -320,8 +325,8 @@ def reply_to_thread(
         from_address=mailbox.email_address,
         to_addresses=[lead.email],
         subject=thread.subject,
-        body_text=body_text,
-        body_html=text_to_html(body_text),
+        body_text=rendered.body_text,
+        body_html=rendered.body_html,
         provider_labels=result.get("labelIds", ["SENT"]),
         occurred_at=now,
     )

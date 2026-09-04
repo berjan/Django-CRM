@@ -46,7 +46,7 @@
   import { INDUSTRIES } from '$lib/constants/lead-choices.js';
   import { getCountryName } from '$lib/constants/countries.js';
 
-  /** @type {{ data: { lead: any, comments: any[], attachments: any[], tags: any[], users: any[], commentPermission: boolean, customFieldDefinitions: any[], customFieldValues: Record<string, unknown>, communicationMailboxes: any[], communicationTemplates: any[], initialTab: string } }} */
+  /** @type {{ data: { lead: any, comments: any[], attachments: any[], tags: any[], users: any[], commentPermission: boolean, customFieldDefinitions: any[], customFieldValues: Record<string, unknown>, communicationMailboxes: any[], communicationTemplates: any[], communicationSignature: any, initialTab: string } }} */
   let { data } = $props();
 
   const lead = $derived(data.lead || {});
@@ -728,6 +728,7 @@
       {lead}
       mailboxes={data.communicationMailboxes || []}
       templates={data.communicationTemplates || []}
+      signature={data.communicationSignature}
       variant="full"
       onunreadchange={(count) => (emailUnreadCount = count)}
       ondraftchange={(count) => (emailDraftCount = count)}

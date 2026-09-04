@@ -174,6 +174,38 @@ class EmailSuppression(BaseOrgModel):
         return f"{self.email_address}: {self.reason}"
 
 
+class EmailSignature(BaseOrgModel):
+    """Organization-wide signature and visual branding for outbound lead email."""
+
+    sender_name = models.CharField(max_length=255)
+    sender_role = models.CharField(max_length=255, blank=True, default="")
+    company_name = models.CharField(max_length=255)
+    phone_number = models.CharField(max_length=64, blank=True, default="")
+    email_address = models.EmailField()
+    website_url = models.URLField(blank=True, default="")
+    address = models.CharField(max_length=255, blank=True, default="")
+    logo_url = models.URLField(blank=True, default="")
+    primary_color = models.CharField(max_length=7, default="#426451")
+    accent_color = models.CharField(max_length=7, default="#F28C00")
+    certifications = models.JSONField(default=list, blank=True)
+    review_score = models.DecimalField(
+        max_digits=3, decimal_places=1, blank=True, null=True
+    )
+    review_count = models.PositiveIntegerField(blank=True, null=True)
+    reviews_url = models.URLField(blank=True, default="")
+    projects_url = models.URLField(blank=True, default="")
+    is_enabled = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "communication_email_signature"
+        constraints = [
+            models.UniqueConstraint(fields=["org"], name="uniq_email_signature_per_org")
+        ]
+
+    def __str__(self):
+        return f"{self.sender_name} — {self.company_name}"
+
+
 class EmailTemplate(BaseOrgModel):
     """Reusable lead email content with immutable version history."""
 

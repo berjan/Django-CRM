@@ -1867,6 +1867,7 @@
         lead={drawerData}
         mailboxes={data.communicationMailboxes || []}
         templates={data.communicationTemplates || []}
+        signature={data.communicationSignature}
       />
       <CommentSection
         entityId={drawerData.id}
