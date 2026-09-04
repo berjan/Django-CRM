@@ -1,6 +1,7 @@
 services:
   db:
     image: postgres:16-alpine
+    restart: unless-stopped
     env_file: .env.docker
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -15,6 +16,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -27,6 +29,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    restart: unless-stopped
     env_file: .env.docker.local
     volumes:
       - ./backend:/app
@@ -45,6 +48,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    restart: unless-stopped
     env_file: .env.docker.local
     volumes:
       - ./backend:/app
@@ -60,6 +64,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    restart: unless-stopped
     env_file: .env.docker.local
     volumes:
       - ./backend:/app
@@ -75,6 +80,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+    restart: unless-stopped
     env_file: .env.docker.local
     volumes:
       - ./frontend:/app
