@@ -16,7 +16,7 @@ from common.utils import (
 )
 from common.validators import flexible_phone_validator
 from contacts.models import Contact
-
+from leads.email_activity import LeadManager
 
 # Cleanup notes:
 # - Removed 'created_from_site' flag (over-engineered)
@@ -145,6 +145,8 @@ class Lead(AssignableMixin, BaseModel):
         blank=True,
         help_text="Per-org schema extension; values are validated against common.CustomFieldDefinition.",
     )
+
+    objects = LeadManager()
 
     class Meta:
         verbose_name = "Lead"

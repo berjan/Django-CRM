@@ -16,9 +16,10 @@ from rest_framework.views import APIView
 
 from common.permissions import HasOrgContext
 from common.utils import LEAD_STATUS
-from leads.email_status import annotate_email_status, filter_email_status
+from leads.email_activity import LeadEmailStatus
 from leads.models import Lead, LeadPipeline, LeadStage
 from leads.serializer import (
+    LeadEmailStatusFilterSerializer,
     LeadKanbanCardSerializer,
     LeadMoveSerializer,
     LeadPipelineListSerializer,
@@ -69,9 +70,10 @@ class LeadKanbanView(APIView):
             ),
             OpenApiParameter(
                 name="email_status",
-                description="Filter by email state: none, draft, sent, replied, follow_up",
+                description="Filter by primary email state",
                 required=False,
                 type=str,
+                enum=LeadEmailStatus.values,
             ),
         ],
     )
@@ -87,7 +89,7 @@ class LeadKanbanView(APIView):
             .select_related("created_by", "stage")
             .prefetch_related("assigned_to", "tags")
         )
-        queryset = annotate_email_status(queryset)
+        queryset = queryset.with_email_activity()
 
         # Apply permission filtering
         if request.profile.role != "ADMIN" and not request.user.is_superuser:
@@ -106,8 +108,12 @@ class LeadKanbanView(APIView):
 
     def _apply_filters(self, queryset, params):
         """Apply common filters to queryset."""
-        if params.get("assigned_to"):
-            queryset = queryset.filter(assigned_to__id=params.get("assigned_to"))
+        if params.getlist("assigned_to"):
+            queryset = queryset.filter(
+                assigned_to__id__in=params.getlist("assigned_to")
+            )
+        if params.getlist("tags"):
+            queryset = queryset.filter(tags__id__in=params.getlist("tags"))
         if params.get("rating"):
             queryset = queryset.filter(rating=params.get("rating"))
         if params.get("search"):
@@ -126,7 +132,13 @@ class LeadKanbanView(APIView):
         if params.get("created_at__lte"):
             queryset = queryset.filter(created_at__lte=params.get("created_at__lte"))
         if params.get("email_status"):
-            queryset = filter_email_status(queryset, params.get("email_status"))
+            email_filter = LeadEmailStatusFilterSerializer(
+                data={"email_status": params.get("email_status")}
+            )
+            email_filter.is_valid(raise_exception=True)
+            queryset = queryset.for_email_status(
+                email_filter.validated_data["email_status"]
+            )
         for raw_key, raw_value in params.items():
             if raw_key.startswith("cf_") and raw_value:
                 cf_key = raw_key[3:]
@@ -134,7 +146,7 @@ class LeadKanbanView(APIView):
                     queryset = queryset.filter(
                         custom_fields__contains={cf_key: raw_value}
                     )
-        return queryset
+        return queryset.distinct()
 
     def _get_status_kanban(self, queryset):
         """Build kanban data using Lead.status as columns."""
@@ -300,9 +312,7 @@ class LeadMoveView(APIView):
                 "error": False,
                 "message": "Lead moved successfully",
                 "lead": LeadKanbanCardSerializer(
-                    annotate_email_status(
-                        Lead.objects.filter(pk=lead.pk, org=org)
-                    ).get()
+                    Lead.objects.with_email_activity().get(pk=lead.pk, org=org)
                 ).data,
             }
         )

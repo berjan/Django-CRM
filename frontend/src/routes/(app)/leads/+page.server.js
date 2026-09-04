@@ -13,6 +13,8 @@
 
 import { error, fail } from '@sveltejs/kit';
 import { apiRequest } from '$lib/api-helpers.js';
+import { LEAD_EMAIL_STATUS_OPTIONS } from '$lib/constants/lead-email-status.js';
+import { buildLeadApiQueryParams, parseLeadFilters } from '$lib/leads/filters.js';
 
 /** @type {import('./$types').PageServerLoad} */
 export async function load({ url, cookies, locals }) {
@@ -31,51 +33,14 @@ export async function load({ url, cookies, locals }) {
   const limit = parseInt(url.searchParams.get('limit') || '10');
 
   // Parse filter params from URL
-  const filters = {
-    search: url.searchParams.get('search') || '',
-    status: url.searchParams.get('status') || '',
-    source: url.searchParams.get('source') || '',
-    rating: url.searchParams.get('rating') || '',
-    email_status: url.searchParams.get('email_status') || '',
-    zzp_likelihood: url.searchParams.get('zzp_likelihood') || '',
-    assigned_to: url.searchParams.getAll('assigned_to'),
-    tags: url.searchParams.getAll('tags'),
-    created_at_gte: url.searchParams.get('created_at_gte') || '',
-    created_at_lte: url.searchParams.get('created_at_lte') || ''
-  };
+  const filters = parseLeadFilters(url.searchParams);
 
   // Build query params for API
-  const queryParams = new URLSearchParams();
-  queryParams.append('limit', limit.toString());
-  queryParams.append('offset', ((page - 1) * limit).toString());
-  if (filters.search) queryParams.append('search', filters.search);
-  if (filters.status) queryParams.append('status', filters.status.toLowerCase().replace(/_/g, ' '));
-  if (filters.source) queryParams.append('source', filters.source.toLowerCase());
-  if (filters.rating) queryParams.append('rating', filters.rating);
-  if (filters.email_status) queryParams.append('email_status', filters.email_status);
-  if (filters.zzp_likelihood) {
-    queryParams.append('cf_partner_zzp_likelihood', filters.zzp_likelihood);
-  }
-  filters.assigned_to.forEach((id) => queryParams.append('assigned_to', id));
-  filters.tags.forEach((id) => queryParams.append('tags', id));
-  if (filters.created_at_gte) queryParams.append('created_at__gte', filters.created_at_gte);
-  if (filters.created_at_lte) queryParams.append('created_at__lte', filters.created_at_lte);
+  const queryParams = buildLeadApiQueryParams(filters, { page, limit });
 
   try {
     // Build kanban query params (without pagination for kanban view)
-    const kanbanQueryParams = new URLSearchParams();
-    if (filters.search) kanbanQueryParams.append('search', filters.search);
-    if (filters.source) kanbanQueryParams.append('source', filters.source.toLowerCase());
-    if (filters.rating) kanbanQueryParams.append('rating', filters.rating);
-    if (filters.email_status) {
-      kanbanQueryParams.append('email_status', filters.email_status);
-    }
-    if (filters.zzp_likelihood) {
-      kanbanQueryParams.append('cf_partner_zzp_likelihood', filters.zzp_likelihood);
-    }
-    filters.assigned_to.forEach((id) => kanbanQueryParams.append('assigned_to', id));
-    if (filters.created_at_gte) kanbanQueryParams.append('created_at__gte', filters.created_at_gte);
-    if (filters.created_at_lte) kanbanQueryParams.append('created_at__lte', filters.created_at_lte);
+    const kanbanQueryParams = buildLeadApiQueryParams(filters, { includeStatus: false });
 
     // Django leads endpoint with filter params
     const queryString = queryParams.toString();
@@ -259,13 +224,7 @@ export async function load({ url, cookies, locals }) {
           { value: 'WARM', label: 'Warm' },
           { value: 'COLD', label: 'Cold' }
         ],
-        emailStatuses: [
-          { value: 'draft', label: 'Concept' },
-          { value: 'sent', label: 'Verzonden' },
-          { value: 'replied', label: 'Reactie ontvangen' },
-          { value: 'follow_up', label: 'Follow-up nodig' },
-          { value: 'none', label: 'Geen e-mailactiviteit' }
-        ],
+        emailStatuses: LEAD_EMAIL_STATUS_OPTIONS,
         zzpLikelihoods: [
           { value: 'Hoog', label: 'Waarschijnlijk' },
           { value: 'Middel', label: 'Mogelijk' },

@@ -32,6 +32,7 @@
   import { LinkedinIcon as Linkedin } from '$lib/components/icons';
   import { page } from '$app/stores';
   import { SearchInput, SelectFilter, DateRangeFilter, TagFilter } from '$lib/components/ui/filter';
+  import { countActiveLeadFilters, LEAD_FILTER_KEYS } from '$lib/leads/filters.js';
   import { Pagination } from '$lib/components/ui/pagination';
   import { Button } from '$lib/components/ui/button/index.js';
   import { PageHeader, FilterStrip, ViewTabs, FilterPill } from '$lib/components/layout';
@@ -1138,16 +1139,7 @@
 
   // Count active filters (excluding status since it's handled via chips in header)
   const activeFiltersCount = $derived.by(() => {
-    let count = 0;
-    if (filters.search) count++;
-    if (filters.source) count++;
-    if (filters.rating) count++;
-    if (filters.email_status) count++;
-    if (filters.zzp_likelihood) count++;
-    if (filters.assigned_to?.length > 0) count++;
-    if (filters.tags?.length > 0) count++;
-    if (filters.created_at_gte || filters.created_at_lte) count++;
-    return count;
+    return countActiveLeadFilters(filters);
   });
 
   /**
@@ -1157,18 +1149,7 @@
   async function updateFilters(newFilters) {
     const url = new URL($page.url);
     // Clear existing filter params (preserve view/action)
-    [
-      'search',
-      'status',
-      'source',
-      'rating',
-      'email_status',
-      'zzp_likelihood',
-      'assigned_to',
-      'tags',
-      'created_at_gte',
-      'created_at_lte'
-    ].forEach((key) => url.searchParams.delete(key));
+    LEAD_FILTER_KEYS.forEach((key) => url.searchParams.delete(key));
     // Set new params
     Object.entries(newFilters).forEach(([key, value]) => {
       if (Array.isArray(value)) {

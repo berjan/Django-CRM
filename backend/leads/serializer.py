@@ -10,6 +10,7 @@ from common.serializer import (
 )
 from common.utils import LEAD_STATUS
 from contacts.serializer import ContactSerializer
+from leads.email_activity import LeadEmailDirection, LeadEmailStatus
 from leads.models import Lead, LeadPipeline, LeadStage
 
 
@@ -302,9 +303,17 @@ class LeadKanbanCardSerializer(serializers.ModelSerializer):
 
     assigned_to = ProfileSerializer(read_only=True, many=True)
     full_name = serializers.SerializerMethodField()
-    email_status = serializers.SerializerMethodField()
-    email_draft_count = serializers.SerializerMethodField()
-    last_email_at = serializers.SerializerMethodField()
+    email_status = serializers.ChoiceField(
+        choices=LeadEmailStatus.choices, read_only=True
+    )
+    email_draft_count = serializers.IntegerField(read_only=True)
+    latest_email_direction = serializers.ChoiceField(
+        choices=LeadEmailDirection.choices,
+        read_only=True,
+        allow_null=True,
+    )
+    last_email_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    email_follow_up_overdue = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Lead
@@ -324,7 +333,9 @@ class LeadKanbanCardSerializer(serializers.ModelSerializer):
             "is_follow_up_overdue",
             "email_status",
             "email_draft_count",
+            "latest_email_direction",
             "last_email_at",
+            "email_follow_up_overdue",
             "assigned_to",
             "created_at",
         ]
@@ -332,21 +343,31 @@ class LeadKanbanCardSerializer(serializers.ModelSerializer):
     def get_full_name(self, obj):
         return str(obj)
 
-    def get_email_status(self, obj):
-        return getattr(obj, "email_status", "none")
+    def to_representation(self, instance):
+        required_annotations = (
+            "email_status",
+            "email_draft_count",
+            "latest_email_direction",
+            "last_email_at",
+            "email_follow_up_overdue",
+        )
+        missing = [name for name in required_annotations if not hasattr(instance, name)]
+        if missing:
+            raise AssertionError(
+                "LeadKanbanCardSerializer requires Lead.objects.with_email_activity(); "
+                f"missing annotations: {', '.join(missing)}"
+            )
+        return super().to_representation(instance)
 
-    def get_email_draft_count(self, obj):
-        return getattr(obj, "email_draft_count", 0)
 
-    def get_last_email_at(self, obj):
-        email_status = self.get_email_status(obj)
-        if email_status == "replied":
-            value = getattr(obj, "last_email_reply_at", None)
-        else:
-            value = getattr(obj, "last_email_sent_at", None)
-        if value is None:
-            return None
-        return serializers.DateTimeField().to_representation(value)
+class LeadEmailStatusFilterSerializer(serializers.Serializer):
+    """Validate the shared lead email-status query parameter."""
+
+    email_status = serializers.ChoiceField(
+        choices=LeadEmailStatus.choices,
+        required=False,
+        allow_blank=True,
+    )
 
 
 class LeadMoveSerializer(serializers.Serializer):

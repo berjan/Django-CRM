@@ -32,12 +32,12 @@ from common.serializer import (
 from common.utils import COUNTRIES, INDCHOICES, LEAD_SOURCE, LEAD_STATUS
 from contacts.models import Contact
 from leads import swagger_params
-from leads.email_status import filter_email_status
 from leads.models import Lead
 from leads.serializer import (
     LeadCreateSerializer,
     LeadCreateSwaggerSerializer,
     LeadDetailEditSwaggerSerializer,
+    LeadEmailStatusFilterSerializer,
     LeadSerializer,
     TagsSerializer,
 )
@@ -110,7 +110,13 @@ class LeadListView(APIView, LimitOffsetPagination):
                     created_at__lte=params.get("created_at__lte")
                 )
             if params.get("email_status"):
-                queryset = filter_email_status(queryset, params.get("email_status"))
+                email_filter = LeadEmailStatusFilterSerializer(
+                    data={"email_status": params.get("email_status")}
+                )
+                email_filter.is_valid(raise_exception=True)
+                queryset = queryset.for_email_status(
+                    email_filter.validated_data["email_status"]
+                )
             if params.get("close_date__gte"):
                 queryset = queryset.filter(
                     close_date__gte=params.get("close_date__gte")
